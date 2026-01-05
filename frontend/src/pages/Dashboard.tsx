@@ -160,7 +160,7 @@ const Dashboard = () => {
         },
         data: data.department_stats
           .sort((a, b) => b.cost - a.cost)
-          .slice(0, 10)
+          .slice(0, 15)
           .map(item => ({
             value: item.cost,
             name: item.dept
@@ -169,10 +169,10 @@ const Dashboard = () => {
     ]
   }
 
-  // 项目成本柱状图 (Top 10)
+  // 项目成本柱状图 (Top 20)
   const projectCostBarOption: EChartsOption = {
     title: {
-      text: '项目成本排名（Top 10）',
+      text: '项目成本排名（Top 20）',
       left: 'center',
       textStyle: {
         fontSize: 16,
@@ -257,7 +257,7 @@ const Dashboard = () => {
       type: 'category',
       data: data.department_stats
         .sort((a, b) => b.avg_hours - a.avg_hours)
-        .slice(0, 10)
+        .slice(0, 15)
         .map(item => item.dept),
       axisLabel: {
         interval: 0,
@@ -277,7 +277,7 @@ const Dashboard = () => {
         type: 'bar',
         data: data.department_stats
           .sort((a, b) => b.avg_hours - a.avg_hours)
-          .slice(0, 10)
+          .slice(0, 15)
           .map(item => item.avg_hours),
         itemStyle: {
           color: '#91cc75',

@@ -339,13 +339,24 @@ class TravelAnalyzer:
         """
         self.logger.info("开始生成Dashboard数据")
         
-        # 项目成本 Top 10
+        # 项目成本 Top 20（如果超过20条，其余汇总到"其他"）
         project_cost = self.aggregate_project_cost()
-        top_projects = project_cost.head(10).to_dict('records') if not project_cost.empty else []
+        top_projects = self._prepare_top_items_with_others(
+            project_cost, 
+            top_n=20, 
+            name_column='项目代码',
+            sum_columns=['总成本', '机票成本', '酒店成本', '火车票成本', '订单数量']
+        ) if not project_cost.empty else []
         
-        # 部门指标
+        # 部门指标 Top 15（如果超过15条，其余汇总到"其他"）
         dept_metrics = self.calculate_department_metrics()
-        dept_data = dept_metrics.to_dict('records') if not dept_metrics.empty else []
+        dept_data = self._prepare_top_items_with_others(
+            dept_metrics,
+            top_n=15,
+            name_column='一级部门',
+            sum_columns=['总成本', '总工时', '人员数量'],
+            avg_columns=['饱和度']
+        ) if not dept_metrics.empty else []
         
         # 异常记录
         anomalies = self.cross_check_anomalies()
@@ -382,5 +393,61 @@ class TravelAnalyzer:
             'booking_behavior': booking_behavior,
             'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
+    
+    def _prepare_top_items_with_others(
+        self, 
+        df: pd.DataFrame, 
+        top_n: int, 
+        name_column: str,
+        sum_columns: List[str],
+        avg_columns: List[str] = None
+    ) -> List[Dict]:
+        """
+        准备 Top N 数据，如果超过 N 条，将其余数据汇总到"其他"
+        
+        Args:
+            df: 数据 DataFrame
+            top_n: 保留的前 N 条记录数
+            name_column: 名称列（如"项目代码"、"一级部门"）
+            sum_columns: 需要求和的列
+            avg_columns: 需要求平均的列（可选）
+        
+        Returns:
+            处理后的记录列表
+        """
+        if df.empty:
+            return []
+        
+        total_count = len(df)
+        
+        # 如果记录数不超过 top_n，直接返回全部
+        if total_count <= top_n:
+            self.logger.debug(f"{name_column}记录数({total_count}) <= {top_n}，返回全部数据")
+            return df.to_dict('records')
+        
+        # 取前 top_n 条
+        top_items = df.head(top_n).to_dict('records')
+        
+        # 计算"其他"条目
+        others_df = df.iloc[top_n:]
+        others_record = {name_column: '其他'}
+        
+        # 对需要求和的列进行求和
+        for col in sum_columns:
+            if col in others_df.columns:
+                others_record[col] = round(others_df[col].sum(), 2)
+        
+        # 对需要求平均的列进行平均
+        if avg_columns:
+            for col in avg_columns:
+                if col in others_df.columns:
+                    others_record[col] = round(others_df[col].mean(), 2)
+        
+        # 将"其他"条目添加到列表末尾
+        top_items.append(others_record)
+        
+        self.logger.info(f"{name_column}: 总计{total_count}条，展示前{top_n}条 + \"其他\"({total_count - top_n}条汇总)")
+        
+        return top_items
 
 

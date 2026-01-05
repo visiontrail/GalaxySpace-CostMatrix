@@ -108,9 +108,12 @@ class ExcelProcessor:
         
         return "", project_str
     
-    def aggregate_project_costs(self) -> List[Dict[str, Any]]:
+    def aggregate_project_costs(self, top_n: int = 20) -> List[Dict[str, Any]]:
         """
         项目成本归集
+        
+        Args:
+            top_n: 返回前N个项目，其余汇总到"其他"（默认20）
         """
         results = []
         
@@ -150,20 +153,55 @@ class ExcelProcessor:
                 'person': 'count'
             }).reset_index()
             
-            for _, row in grouped.iterrows():
-                project_details = df_projects[
-                    df_projects['project_code'] == row['project_code']
-                ].to_dict('records')
+            # 按成本降序排序
+            grouped = grouped.sort_values('amount', ascending=False).reset_index(drop=True)
+            
+            total_count = len(grouped)
+            
+            # 如果项目数量超过 top_n，将超出部分汇总到"其他"
+            if total_count > top_n:
+                # 前 top_n 个项目
+                for _, row in grouped.head(top_n).iterrows():
+                    project_details = df_projects[
+                        df_projects['project_code'] == row['project_code']
+                    ].to_dict('records')
+                    
+                    results.append({
+                        'project_code': row['project_code'],
+                        'project_name': row['project_name'],
+                        'total_cost': float(row['amount']),
+                        'record_count': int(row['person']),
+                        'details': project_details[:10]
+                    })
+                
+                # 汇总"其他"项目
+                others_df = grouped.iloc[top_n:]
+                others_total_cost = float(others_df['amount'].sum())
+                others_record_count = int(others_df['person'].sum())
                 
                 results.append({
-                    'project_code': row['project_code'],
-                    'project_name': row['project_name'],
-                    'total_cost': float(row['amount']),
-                    'record_count': int(row['person']),
-                    'details': project_details[:10]  # 限制返回详情数量
+                    'project_code': '其他',
+                    'project_name': f'其他项目（{total_count - top_n}个）',
+                    'total_cost': others_total_cost,
+                    'record_count': others_record_count,
+                    'details': []
                 })
+            else:
+                # 如果不超过 top_n，返回全部
+                for _, row in grouped.iterrows():
+                    project_details = df_projects[
+                        df_projects['project_code'] == row['project_code']
+                    ].to_dict('records')
+                    
+                    results.append({
+                        'project_code': row['project_code'],
+                        'project_name': row['project_name'],
+                        'total_cost': float(row['amount']),
+                        'record_count': int(row['person']),
+                        'details': project_details[:10]
+                    })
         
-        return sorted(results, key=lambda x: x['total_cost'], reverse=True)
+        return results
     
     def cross_check_attendance_travel(self) -> List[Dict[str, Any]]:
         """
@@ -233,6 +271,10 @@ class ExcelProcessor:
                     })
                 
                 # 异常 B: 考勤显示出差，但无差旅消费
+                # 注意：根据业务需求，此类异常已被标记为"可忽略"，不纳入异常统计
+                # 原因：出差不一定产生差旅消费（例如：客户提供交通/住宿、本地出差等）
+                # 如需启用此检测，请取消以下注释
+                """
                 if '出差' in att_status and day_travel.empty:
                     anomalies.append({
                         'name': name,
@@ -243,6 +285,7 @@ class ExcelProcessor:
                         'travel_records': [],
                         'description': f'{name} 在 {att_date.strftime("%Y-%m-%d")} 考勤显示出差，但无差旅消费记录'
                     })
+                """
         
         return anomalies
     
@@ -286,9 +329,12 @@ class ExcelProcessor:
             'cost_by_advance_days': sorted(cost_by_advance_list, key=lambda x: x['advance_days'])
         }
     
-    def calculate_department_costs(self) -> List[Dict[str, Any]]:
+    def calculate_department_costs(self, top_n: int = 15) -> List[Dict[str, Any]]:
         """
         部门成本汇总（包含平均工时和人数统计）
+        
+        Args:
+            top_n: 返回前N个部门，其余汇总到"其他"（默认15）
         """
         results = []
         
@@ -321,6 +367,9 @@ class ExcelProcessor:
                     '成本': 'sum'
                 }).reset_index()
                 
+                # 按成本降序排序
+                grouped = grouped.sort_values('成本', ascending=False).reset_index(drop=True)
+                
                 for _, row in grouped.iterrows():
                     dept = row['一级部门']
                     stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
@@ -334,7 +383,8 @@ class ExcelProcessor:
                         'person_count': stats['person_count']
                     })
                 
-                return results
+                # 应用 top_n 限制并添加"其他"
+                return self._apply_top_n_with_others(results, top_n, 'department')
         
         # 如果没有汇总表，从明细计算
         travel_data = {
@@ -383,7 +433,56 @@ class ExcelProcessor:
                 dept_costs[dept]['total_cost'] += amount
         
         results = list(dept_costs.values())
-        return sorted(results, key=lambda x: x['total_cost'], reverse=True)
+        results = sorted(results, key=lambda x: x['total_cost'], reverse=True)
+        
+        # 应用 top_n 限制并添加"其他"
+        return self._apply_top_n_with_others(results, top_n, 'department')
+    
+    def _apply_top_n_with_others(self, results: List[Dict[str, Any]], top_n: int, name_key: str) -> List[Dict[str, Any]]:
+        """
+        应用 Top N 限制，将超出部分汇总到"其他"
+        
+        Args:
+            results: 已排序的结果列表
+            top_n: 保留的前N条记录
+            name_key: 名称字段（'department' 或 'project_code'）
+        
+        Returns:
+            处理后的结果列表
+        """
+        if not results or len(results) <= top_n:
+            return results
+        
+        # 前 top_n 条
+        top_results = results[:top_n]
+        
+        # 剩余的汇总到"其他"
+        others = results[top_n:]
+        total_count = len(results)
+        
+        others_summary = {
+            name_key: '其他',
+            'total_cost': sum(item.get('total_cost', 0) for item in others),
+            'flight_cost': sum(item.get('flight_cost', 0) for item in others),
+            'hotel_cost': sum(item.get('hotel_cost', 0) for item in others),
+            'train_cost': sum(item.get('train_cost', 0) for item in others),
+        }
+        
+        # 如果是部门数据，计算平均工时和总人数
+        if name_key == 'department':
+            avg_hours_list = [item.get('avg_hours', 0) for item in others if item.get('avg_hours', 0) > 0]
+            others_summary['avg_hours'] = sum(avg_hours_list) / len(avg_hours_list) if avg_hours_list else 0
+            others_summary['person_count'] = sum(item.get('person_count', 0) for item in others)
+        
+        # 如果是项目数据
+        if name_key == 'project_code':
+            others_summary['project_name'] = f'其他项目（{total_count - top_n}个）'
+            others_summary['record_count'] = sum(item.get('record_count', 0) for item in others)
+            others_summary['details'] = []
+        
+        top_results.append(others_summary)
+        
+        return top_results
     
     def get_attendance_summary(self) -> Dict[str, Any]:
         """

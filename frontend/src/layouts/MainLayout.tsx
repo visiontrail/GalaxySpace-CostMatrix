@@ -20,11 +20,6 @@ const MainLayout = () => {
       icon: <UploadOutlined />,
       label: '文件上传',
     },
-    {
-      key: '/demo',
-      icon: <RocketOutlined />,
-      label: '演示模式',
-    },
   ]
 
   const handleMenuClick = ({ key }: { key: string }) => {

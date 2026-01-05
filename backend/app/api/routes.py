@@ -78,9 +78,9 @@ async def analyze_excel(file_path: str):
         processor = ExcelProcessor(file_path)
         processor.load_all_sheets()
         
-        # 执行各项分析
-        project_costs = processor.aggregate_project_costs()
-        department_costs = processor.calculate_department_costs()
+        # 执行各项分析（部门Top 15，项目Top 20）
+        project_costs = processor.aggregate_project_costs(top_n=20)
+        department_costs = processor.calculate_department_costs(top_n=15)
         anomalies = processor.cross_check_attendance_travel()
         booking_behavior = processor.analyze_booking_behavior()
         attendance_summary = processor.get_attendance_summary()
@@ -101,14 +101,14 @@ async def analyze_excel(file_path: str):
             for item in department_costs
         ]
         
-        # 转换项目数据格式为前端期望的结构
+        # 转换项目数据格式为前端期望的结构（现在是Top 20 + "其他"）
         project_top10 = [
             {
                 'code': item['project_code'],
                 'name': item['project_name'],
                 'cost': item['total_cost']
             }
-            for item in project_costs[:10]
+            for item in project_costs
         ]
         
         # 转换异常数据格式为前端期望的结构
