@@ -87,24 +87,52 @@ async def analyze_excel(file_path: str):
         
         # 计算总览数据
         total_cost = sum(item['total_cost'] for item in department_costs)
-        total_projects = len(project_costs)
-        total_anomalies = len(anomalies)
+        avg_work_hours = attendance_summary.get('avg_work_hours', 0)
+        anomaly_count = len(anomalies)
         
-        overview = {
-            'total_cost': round(total_cost, 2),
-            'total_projects': total_projects,
-            'total_departments': len(department_costs),
-            'total_anomalies': total_anomalies,
-            'analysis_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+        # 转换部门数据格式为前端期望的结构
+        department_stats = [
+            {
+                'dept': item['department'],
+                'cost': item['total_cost'],
+                'avg_hours': item.get('avg_hours', 0),
+                'headcount': item.get('person_count', 0)
+            }
+            for item in department_costs
+        ]
         
+        # 转换项目数据格式为前端期望的结构
+        project_top10 = [
+            {
+                'code': item['project_code'],
+                'name': item['project_name'],
+                'cost': item['total_cost']
+            }
+            for item in project_costs[:10]
+        ]
+        
+        # 转换异常数据格式为前端期望的结构
+        anomaly_list = [
+            {
+                'date': item.get('date', ''),
+                'name': item.get('name', ''),
+                'dept': item.get('department', ''),
+                'type': item.get('anomaly_type', 'Unknown'),
+                'detail': item.get('description', '')
+            }
+            for item in anomalies
+        ]
+        
+        # 构建符合前端期望的数据结构
         dashboard_data = {
-            'overview': overview,
-            'department_costs': department_costs[:10],  # Top 10
-            'project_costs': project_costs[:20],  # Top 20
-            'anomalies': anomalies[:50],  # Top 50
-            'booking_behavior': booking_behavior,
-            'attendance_summary': attendance_summary
+            'summary': {
+                'total_cost': round(total_cost, 2),
+                'avg_work_hours': round(avg_work_hours, 2),
+                'anomaly_count': anomaly_count
+            },
+            'department_stats': department_stats,
+            'project_top10': project_top10,
+            'anomalies': anomaly_list
         }
         
         return AnalysisResult(

@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Dict, List, Tuple
 from datetime import datetime
 import json
+from logger_config import get_logger
 
 
 class TravelAnalyzer:
@@ -32,9 +33,17 @@ class TravelAnalyzer:
         self.flight_df = flight_df
         self.hotel_df = hotel_df
         self.train_df = train_df
+        self.logger = get_logger("analysis_service")
+        
+        self.logger.info("初始化差旅数据分析器")
+        self.logger.debug(f"考勤数据行数: {len(attendance_df)}")
+        self.logger.debug(f"机票数据行数: {len(flight_df)}")
+        self.logger.debug(f"酒店数据行数: {len(hotel_df)}")
+        self.logger.debug(f"火车票数据行数: {len(train_df)}")
         
         # 合并所有差旅数据
         self.travel_df = self._merge_travel_data()
+        self.logger.info(f"差旅数据合并完成，总行数: {len(self.travel_df)}")
     
     def _merge_travel_data(self) -> pd.DataFrame:
         """合并所有差旅数据"""
@@ -77,7 +86,10 @@ class TravelAnalyzer:
         Returns:
             项目成本汇总 DataFrame
         """
+        self.logger.debug("开始执行项目成本归集")
+        
         if self.travel_df.empty:
+            self.logger.warning("差旅数据为空，无法进行项目成本归集")
             return pd.DataFrame(columns=['项目代码', '总成本', '机票成本', '酒店成本', '火车票成本', '订单数量'])
         
         # 确保必要的列存在
@@ -115,6 +127,12 @@ class TravelAnalyzer:
         # 按总成本降序排序
         if not result_df.empty:
             result_df = result_df.sort_values('总成本', ascending=False).reset_index(drop=True)
+            self.logger.info(f"项目成本归集完成，共 {len(result_df)} 个项目")
+            if len(result_df) > 0:
+                top_project = result_df.iloc[0]
+                self.logger.debug(f"成本最高项目: {top_project['项目代码']}, 总成本: ¥{top_project['总成本']:,.2f}")
+        else:
+            self.logger.warning("项目成本归集结果为空")
         
         return result_df
     
@@ -125,22 +143,28 @@ class TravelAnalyzer:
         Returns:
             异常记录列表
         """
+        self.logger.debug("开始执行交叉验证异常检测")
         anomalies = []
         
         if self.attendance_df.empty or self.travel_df.empty:
+            self.logger.warning("考勤数据或差旅数据为空，无法进行异常检测")
             return anomalies
         
         # 确保必要列存在
         if '日期' not in self.attendance_df.columns or '姓名' not in self.attendance_df.columns:
+            self.logger.warning("考勤数据缺少必要列（日期、姓名），无法进行异常检测")
             return anomalies
         
         if '消费日期' not in self.travel_df.columns or '差旅人员姓名' not in self.travel_df.columns:
+            self.logger.warning("差旅数据缺少必要列（消费日期、差旅人员姓名），无法进行异常检测")
             return anomalies
         
         # 类型1: 考勤显示上班，但有异地差旅消费
+        self.logger.debug("检测类型1异常：考勤显示上班但有异地差旅消费")
         work_records = self.attendance_df[
             self.attendance_df['当日状态判断'].str.contains('上班', na=False)
         ].copy()
+        self.logger.debug(f"上班考勤记录数: {len(work_records)}")
         
         for _, record in work_records.iterrows():
             date = record['日期']
@@ -166,9 +190,15 @@ class TravelAnalyzer:
                     })
         
         # 类型2: 考勤显示出差，但无任何差旅消费
+        # 注意：根据业务需求，此类异常已被标记为"可忽略"，不纳入异常统计
+        # 原因：出差不一定产生差旅消费（例如：客户提供交通/住宿、本地出差等）
+        # 如需启用此检测，请取消以下注释
+        """
+        self.logger.debug("检测类型2异常：考勤显示出差但无任何差旅消费")
         business_trip_records = self.attendance_df[
             self.attendance_df['当日状态判断'].str.contains('出差', na=False)
         ].copy()
+        self.logger.debug(f"出差考勤记录数: {len(business_trip_records)}")
         
         for _, record in business_trip_records.iterrows():
             date = record['日期']
@@ -201,6 +231,12 @@ class TravelAnalyzer:
                         '一级部门': record.get('一级部门', ''),
                         '描述': '考勤显示出差但无任何差旅消费记录'
                     })
+        """
+        
+        self.logger.info(f"异常检测完成，发现 {len(anomalies)} 条异常记录")
+        conflict_count = len([a for a in anomalies if a['Type'] == 'Conflict'])
+        no_expense_count = len([a for a in anomalies if a['Type'] == 'NoExpense'])
+        self.logger.debug(f"其中冲突类型: {conflict_count}, 无消费类型: {no_expense_count}")
         
         return anomalies
     
@@ -212,7 +248,10 @@ class TravelAnalyzer:
         Returns:
             预订行为统计字典
         """
+        self.logger.debug("开始执行预订行为分析")
+        
         if self.travel_df.empty or '提前预定天数' not in self.travel_df.columns:
+            self.logger.warning("差旅数据为空或缺少'提前预定天数'列，无法进行预订行为分析")
             return {
                 'total_orders': 0,
                 'urgent_orders': 0,
@@ -224,6 +263,9 @@ class TravelAnalyzer:
         urgent_orders = len(self.travel_df[self.travel_df['提前预定天数'] <= 2])
         urgent_ratio = (urgent_orders / total_orders * 100) if total_orders > 0 else 0
         avg_advance_days = self.travel_df['提前预定天数'].mean()
+        
+        self.logger.info(f"预订行为分析完成: 总订单={total_orders}, 紧急订单={urgent_orders}, "
+                        f"紧急比例={urgent_ratio:.2f}%, 平均提前天数={avg_advance_days:.2f}")
         
         return {
             'total_orders': int(total_orders),
@@ -295,6 +337,8 @@ class TravelAnalyzer:
         Returns:
             包含所有分析结果的字典
         """
+        self.logger.info("开始生成Dashboard数据")
+        
         # 项目成本 Top 10
         project_cost = self.aggregate_project_cost()
         top_projects = project_cost.head(10).to_dict('records') if not project_cost.empty else []
@@ -320,6 +364,9 @@ class TravelAnalyzer:
             over_standard_count = len(
                 self.travel_df[self.travel_df['是否超标'].str.contains('是', na=False)]
             )
+        
+        self.logger.info(f"Dashboard数据生成完成: 总成本=¥{total_cost:,.2f}, 订单数={total_orders}, "
+                        f"异常数={anomaly_count}, 超标数={over_standard_count}")
         
         return {
             'kpi': {

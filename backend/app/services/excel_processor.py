@@ -214,12 +214,18 @@ class ExcelProcessor:
                     person_travel['出发日期'].dt.date == att_date.date()
                 ] if '出发日期' in person_travel.columns else pd.DataFrame()
                 
+                # 获取部门信息
+                department = att_row.get('一级部门', '未知部门')
+                if pd.isna(department):
+                    department = '未知部门'
+                
                 # 异常 A: 考勤显示上班，但有差旅消费
                 if '上班' in att_status and not day_travel.empty:
                     travel_list = day_travel['差旅类型'].tolist()
                     anomalies.append({
                         'name': name,
                         'date': att_date.strftime('%Y-%m-%d'),
+                        'department': department,
                         'anomaly_type': 'A',
                         'attendance_status': att_status,
                         'travel_records': travel_list,
@@ -231,6 +237,7 @@ class ExcelProcessor:
                     anomalies.append({
                         'name': name,
                         'date': att_date.strftime('%Y-%m-%d'),
+                        'department': department,
                         'anomaly_type': 'B',
                         'attendance_status': att_status,
                         'travel_records': [],
@@ -281,9 +288,30 @@ class ExcelProcessor:
     
     def calculate_department_costs(self) -> List[Dict[str, Any]]:
         """
-        部门成本汇总
+        部门成本汇总（包含平均工时和人数统计）
         """
         results = []
+        
+        # 获取考勤数据以计算工时和人数
+        attendance_df = self.clean_attendance_data()
+        dept_attendance_stats = {}
+        
+        if not attendance_df.empty and '一级部门' in attendance_df.columns:
+            # 计算每个部门的平均工时和人数
+            for dept in attendance_df['一级部门'].unique():
+                if pd.isna(dept):
+                    continue
+                dept_data = attendance_df[attendance_df['一级部门'] == dept]
+                avg_hours = 0
+                if '工时' in dept_data.columns:
+                    avg_hours = dept_data['工时'].mean()
+                    if pd.isna(avg_hours):
+                        avg_hours = 0
+                person_count = dept_data['姓名'].nunique() if '姓名' in dept_data.columns else 0
+                dept_attendance_stats[dept] = {
+                    'avg_hours': float(avg_hours),
+                    'person_count': int(person_count)
+                }
         
         # 尝试从差旅汇总 Sheet 获取
         summary_df = self.get_sheet('差旅汇总')
@@ -294,13 +322,16 @@ class ExcelProcessor:
                 }).reset_index()
                 
                 for _, row in grouped.iterrows():
+                    dept = row['一级部门']
+                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
                     results.append({
-                        'department': row['一级部门'],
+                        'department': dept,
                         'total_cost': float(row['成本']),
                         'flight_cost': 0,
                         'hotel_cost': 0,
                         'train_cost': 0,
-                        'person_count': 0
+                        'avg_hours': stats['avg_hours'],
+                        'person_count': stats['person_count']
                     })
                 
                 return results
@@ -320,7 +351,6 @@ class ExcelProcessor:
                 continue
             
             # 尝试关联部门信息
-            attendance_df = self.clean_attendance_data()
             if not attendance_df.empty and '一级部门' in attendance_df.columns:
                 # Merge with attendance to get department
                 name_dept = attendance_df[['姓名', '一级部门']].drop_duplicates()
@@ -337,13 +367,15 @@ class ExcelProcessor:
                     dept = '未知部门'
                 
                 if dept not in dept_costs:
+                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
                     dept_costs[dept] = {
                         'department': dept,
                         'total_cost': 0,
                         'flight_cost': 0,
                         'hotel_cost': 0,
                         'train_cost': 0,
-                        'person_count': 0
+                        'avg_hours': stats['avg_hours'],
+                        'person_count': stats['person_count']
                     }
                 
                 amount = row.get(amount_col, 0) or 0

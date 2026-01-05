@@ -113,7 +113,7 @@ const Upload = () => {
         
         // 显示分析结果摘要
         message.info({
-          content: `分析完成：发现 ${result.data.summary.anomaly_count} 条异常记录`,
+          content: `分析完成：发现 ${result.data?.summary?.anomaly_count ?? 0} 条异常记录`,
           duration: 3
         })
         
@@ -158,7 +158,7 @@ const Upload = () => {
 
   return (
     <div className="upload-container">
-      <Card bordered={false}>
+      <Card variant="borderless">
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           {/* 页面标题 */}
           <div style={{ textAlign: 'center' }}>
@@ -255,12 +255,12 @@ const Upload = () => {
               description={
                 <Space direction="vertical">
                   <Text>文件路径: <Text code>{uploadedFilePath}</Text></Text>
-                  {analysisResult && (
+                  {analysisResult?.summary && (
                     <Space direction="vertical" size="small">
                       <Text strong>分析结果概览：</Text>
-                      <Text>• 总成本: ¥{analysisResult.summary.total_cost.toLocaleString()}</Text>
-                      <Text>• 平均工时: {analysisResult.summary.avg_work_hours.toFixed(1)} 小时</Text>
-                      <Text>• 异常记录: {analysisResult.summary.anomaly_count} 条</Text>
+                      <Text>• 总成本: ¥{(analysisResult.summary.total_cost ?? 0).toLocaleString()}</Text>
+                      <Text>• 平均工时: {(analysisResult.summary.avg_work_hours ?? 0).toFixed(1)} 小时</Text>
+                      <Text>• 异常记录: {analysisResult.summary.anomaly_count ?? 0} 条</Text>
                     </Space>
                   )}
                 </Space>
@@ -301,7 +301,7 @@ const Upload = () => {
       {/* 使用说明 */}
       <Card 
         title="使用说明" 
-        bordered={false}
+        variant="borderless"
         style={{ marginTop: 24 }}
       >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>

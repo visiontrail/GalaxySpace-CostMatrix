@@ -11,6 +11,7 @@ import pandas as pd
 from typing import Dict, List
 from io import BytesIO
 import os
+from logger_config import get_logger
 
 
 class ExcelExporter:
@@ -25,12 +26,20 @@ class ExcelExporter:
         """
         self.file_path = file_path
         self.workbook = None
+        self.logger = get_logger("export_service")
+        
+        self.logger.info(f"初始化Excel导出服务，文件路径: {file_path}")
     
     def load_workbook(self):
         """加载原始 Excel 工作簿"""
         try:
+            self.logger.debug("开始加载Excel工作簿")
             self.workbook = openpyxl.load_workbook(self.file_path)
+            sheet_count = len(self.workbook.sheetnames)
+            self.logger.info(f"Excel工作簿加载成功，共 {sheet_count} 个工作表")
+            self.logger.debug(f"工作表列表: {', '.join(self.workbook.sheetnames)}")
         except Exception as e:
+            self.logger.error(f"无法加载 Excel 文件: {str(e)}", exc_info=True)
             raise ValueError(f"无法加载 Excel 文件: {str(e)}")
     
     def add_dashboard_sheet(self, dashboard_data: Dict):
@@ -40,15 +49,19 @@ class ExcelExporter:
         Args:
             dashboard_data: 分析结果字典
         """
+        self.logger.debug("开始添加Dashboard_Data工作表")
+        
         if self.workbook is None:
             self.load_workbook()
         
         # 删除已存在的同名 Sheet
         if "Dashboard_Data" in self.workbook.sheetnames:
+            self.logger.debug("删除已存在的Dashboard_Data工作表")
             del self.workbook["Dashboard_Data"]
         
         # 创建新 Sheet
         ws = self.workbook.create_sheet("Dashboard_Data", 0)
+        self.logger.debug("Dashboard_Data工作表创建成功")
         
         # 设置标题样式
         title_font = Font(name='微软雅黑', size=14, bold=True, color='FFFFFF')
@@ -179,6 +192,15 @@ class ExcelExporter:
         ws.column_dimensions['D'].width = 15
         ws.column_dimensions['E'].width = 15
         ws.column_dimensions['F'].width = 15
+        
+        kpi = dashboard_data.get('kpi', {})
+        top_projects_count = len(dashboard_data.get('top_projects', []))
+        dept_metrics_count = len(dashboard_data.get('department_metrics', []))
+        
+        self.logger.info(f"Dashboard_Data工作表添加完成: "
+                        f"KPI指标已添加, "
+                        f"Top项目={top_projects_count}, "
+                        f"部门指标={dept_metrics_count}")
     
     def add_anomaly_sheet(self, anomalies: List[Dict]):
         """
@@ -187,15 +209,19 @@ class ExcelExporter:
         Args:
             anomalies: 异常记录列表
         """
+        self.logger.debug(f"开始添加Anomaly_Log工作表，异常记录数: {len(anomalies)}")
+        
         if self.workbook is None:
             self.load_workbook()
         
         # 删除已存在的同名 Sheet
         if "Anomaly_Log" in self.workbook.sheetnames:
+            self.logger.debug("删除已存在的Anomaly_Log工作表")
             del self.workbook["Anomaly_Log"]
         
         # 创建新 Sheet
         ws = self.workbook.create_sheet("Anomaly_Log")
+        self.logger.debug("Anomaly_Log工作表创建成功")
         
         # 设置样式
         header_font = Font(name='微软雅黑', size=11, bold=True, color='FFFFFF')
@@ -259,6 +285,14 @@ class ExcelExporter:
         
         # 冻结首行
         ws.freeze_panes = 'A2'
+        
+        conflict_count = len([a for a in anomalies if a.get('Type') == 'Conflict'])
+        no_expense_count = len([a for a in anomalies if a.get('Type') == 'NoExpense'])
+        
+        self.logger.info(f"Anomaly_Log工作表添加完成: "
+                        f"总异常数={len(anomalies)}, "
+                        f"冲突类型={conflict_count}, "
+                        f"无消费类型={no_expense_count}")
     
     def save_to_bytes(self) -> BytesIO:
         """
@@ -268,11 +302,15 @@ class ExcelExporter:
             BytesIO 对象
         """
         if self.workbook is None:
+            self.logger.error("工作簿未加载，无法保存")
             raise ValueError("工作簿未加载")
         
+        self.logger.debug("开始将工作簿保存到内存字节流")
         output = BytesIO()
         self.workbook.save(output)
         output.seek(0)
+        size_bytes = output.getbuffer().nbytes
+        self.logger.info(f"工作簿已保存到内存，大小: {size_bytes} bytes ({size_bytes/1024:.2f} KB)")
         return output
     
     def save_to_file(self, output_path: str):
@@ -302,9 +340,14 @@ class ExcelExporter:
         Returns:
             BytesIO 对象
         """
+        self.logger.info("开始导出包含分析结果的Excel文件")
+        
         self.load_workbook()
         self.add_dashboard_sheet(dashboard_data)
         self.add_anomaly_sheet(anomalies)
-        return self.save_to_bytes()
+        result = self.save_to_bytes()
+        
+        self.logger.info("Excel文件导出完成")
+        return result
 
 

@@ -41,13 +41,16 @@ htmlcov/
 *.cover
 
 # Temporary files
-*.log
 *.tmp
 temp/
 tmp/
 *.xlsx
 *.xls
 !sample_data.xlsx
+
+# Logs (保留目录结构，但忽略日志文件)
+logs/*.log
+logs/*.log.*
 
 # Environment variables
 .env

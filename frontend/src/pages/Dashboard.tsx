@@ -44,7 +44,20 @@ const Dashboard = () => {
     
     if (savedData) {
       try {
-        setData(JSON.parse(savedData))
+        const parsedData = JSON.parse(savedData)
+        // 确保关键属性存在，提供默认值
+        const safeData = {
+          ...parsedData,
+          department_stats: parsedData.department_stats || [],
+          project_top10: parsedData.project_top10 || [],
+          anomalies: parsedData.anomalies || [],
+          summary: parsedData.summary || {
+            total_cost: 0,
+            avg_work_hours: 0,
+            anomaly_count: 0
+          }
+        }
+        setData(safeData)
       } catch (error) {
         console.error('Failed to parse dashboard data:', error)
         message.error('数据加载失败')
@@ -85,7 +98,7 @@ const Dashboard = () => {
   }
 
   // 空状态
-  if (!data) {
+  if (!data || !data.department_stats || !data.project_top10 || !data.anomalies) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
         <Empty
@@ -488,7 +501,7 @@ const Dashboard = () => {
       {/* 核心指标卡片 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={8}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <Statistic
               title="总成本"
               value={data.summary.total_cost}
@@ -500,7 +513,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={8}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <Statistic
               title="平均工时"
               value={data.summary.avg_work_hours}
@@ -512,7 +525,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={8}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <Statistic
               title="异常记录"
               value={data.summary.anomaly_count}
@@ -527,7 +540,7 @@ const Dashboard = () => {
       {/* 次要指标卡片 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <Statistic
               title="部门数量"
               value={data.department_stats.length}
@@ -538,7 +551,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <Statistic
               title="项目数量"
               value={data.project_top10.length}
@@ -555,7 +568,7 @@ const Dashboard = () => {
       {/* 图表区域 - 第一行 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={12}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <ReactECharts 
               option={departmentCostPieOption} 
               style={{ height: 400 }} 
@@ -565,7 +578,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <ReactECharts 
               option={projectCostBarOption} 
               style={{ height: 400 }} 
@@ -579,7 +592,7 @@ const Dashboard = () => {
       {/* 图表区域 - 第二行 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={12}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <ReactECharts 
               option={departmentHoursBarOption} 
               style={{ height: 400 }} 
@@ -589,7 +602,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card bordered={false} hoverable>
+          <Card variant="borderless" hoverable>
             <ReactECharts 
               option={deptHeadcountCostScatterOption} 
               style={{ height: 400 }} 
@@ -605,7 +618,7 @@ const Dashboard = () => {
       {/* 部门统计表格 */}
       <Card 
         title={<><TeamOutlined /> 部门统计详情</>}
-        bordered={false}
+        variant="borderless"
         style={{ marginBottom: 24 }}
       >
         <Table
@@ -625,7 +638,7 @@ const Dashboard = () => {
       {/* 项目统计表格 */}
       <Card 
         title={<><ProjectOutlined /> 项目成本详情（Top 10）</>}
-        bordered={false}
+        variant="borderless"
         style={{ marginBottom: 24 }}
       >
         <Table
@@ -641,7 +654,7 @@ const Dashboard = () => {
       {/* 异常记录表格 */}
       <Card 
         title={<><WarningOutlined /> 异常记录详情</>}
-        bordered={false}
+        variant="borderless"
         extra={
           <Tag color="red">
             共 {data.anomalies.length} 条异常
