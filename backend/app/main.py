@@ -4,10 +4,13 @@ FastAPI 主应用入口
 import sys
 from pathlib import Path
 
-# Ensure shared modules at repo root (e.g., logger_config) are importable when running from backend/
-ROOT_DIR = Path(__file__).resolve().parents[2]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+# 尝试将包含 logger_config.py 的仓库根目录加入 sys.path（仅在存在时）
+PROJECT_ROOT = next(
+    (p for p in Path(__file__).resolve().parents if (p / "logger_config.py").exists()),
+    None,
+)
+if PROJECT_ROOT and str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +29,7 @@ app = FastAPI(
 # 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=settings.allowed_origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

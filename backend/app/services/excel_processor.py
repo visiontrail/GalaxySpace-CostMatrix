@@ -9,16 +9,9 @@ from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime
 import re
 import os
-import sys
-from pathlib import Path
 from collections import Counter
 
-# 添加根目录到 sys.path 以导入日志模块
-ROOT_DIR = Path(__file__).resolve().parents[3]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from logger_config import get_logger
+from app.utils.logger import get_logger
 
 
 class ExcelProcessor:

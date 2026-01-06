@@ -359,10 +359,7 @@ async def clear_all_data():
                     cleared_uploads += 1
             upload_dir.mkdir(parents=True, exist_ok=True)
 
-        try:
-            project_root = Path(__file__).resolve().parents[3]
-        except IndexError:
-            project_root = Path(__file__).resolve().parent
+        project_root = Path(__file__).resolve().parents[2]  # backend 根目录
         log_dir = project_root / "logs"
         if log_dir.exists() and log_dir.is_dir():
             for log_file in log_dir.iterdir():

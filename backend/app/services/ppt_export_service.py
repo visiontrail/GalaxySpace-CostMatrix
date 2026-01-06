@@ -11,7 +11,7 @@ from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
 from PIL import Image
-from logger_config import get_logger
+from app.utils.logger import get_logger
 
 
 class PPTExporter:
