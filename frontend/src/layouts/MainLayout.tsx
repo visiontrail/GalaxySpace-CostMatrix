@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Layout, Menu, Typography, Tag, Button, Space, Spin, message, Empty } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { DashboardOutlined, UploadOutlined, RocketOutlined } from '@ant-design/icons'
+import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import type { UploadRecord } from '@/types'
 import { listUploads } from '@/services/api'
 
@@ -21,6 +21,7 @@ const MainLayout = () => {
   const [uploads, setUploads] = useState<UploadRecord[]>([])
   const [selectedUpload, setSelectedUpload] = useState<UploadRecord | null>(null)
   const [loadingUploads, setLoadingUploads] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const menuItems = [
     {
@@ -39,6 +40,10 @@ const MainLayout = () => {
     navigate(key)
   }
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => !prev)
+  }
+
   const refreshUploads = useCallback(async () => {
     setLoadingUploads(true)
     try {
@@ -48,9 +53,11 @@ const MainLayout = () => {
           (a, b) => (b.upload_time || '').localeCompare(a.upload_time || '')
         )
         setUploads(sorted)
-        const current = sorted.find((item) => item.file_path === selectedUpload?.file_path)
-        const nextSelection = current || sorted.find((item) => item.parsed) || sorted[0] || null
-        setSelectedUpload(nextSelection || null)
+        setSelectedUpload((current) => {
+          const matched = sorted.find((item) => item.file_path === current?.file_path)
+          const nextSelection = matched || sorted.find((item) => item.parsed) || sorted[0] || null
+          return nextSelection || null
+        })
       } else {
         message.error(res.message || '获取上传记录失败')
       }
@@ -59,7 +66,7 @@ const MainLayout = () => {
     } finally {
       setLoadingUploads(false)
     }
-  }, [selectedUpload])
+  }, [])
 
   useEffect(() => {
     refreshUploads()
@@ -94,11 +101,29 @@ const MainLayout = () => {
     <Layout style={{ minHeight: '100vh' }}>
       <Sider
         theme="light"
+        collapsible
+        collapsed={sidebarCollapsed}
+        onCollapse={(collapsed) => setSidebarCollapsed(collapsed)}
+        collapsedWidth={0}
+        trigger={null}
         width={320}
-        style={{ borderRight: '1px solid #f0f0f0', padding: '16px 12px' }}
+        style={{
+          borderRight: sidebarCollapsed ? 'none' : '1px solid #f0f0f0',
+          padding: sidebarCollapsed ? 0 : '16px 12px',
+        }}
       >
         <Space align="center" style={{ width: '100%', justifyContent: 'space-between', padding: '0 8px' }}>
-          <Title level={4} style={{ margin: 0 }}>数据文件</Title>
+          <Space align="center" size={6}>
+            <Button
+              type="text"
+              size="small"
+              icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={toggleSidebar}
+              style={{ color: '#1f1f1f' }}
+              aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+            />
+            <Title level={4} style={{ margin: 0 }}>数据文件</Title>
+          </Space>
           <Button size="small" onClick={refreshUploads} loading={loadingUploads}>
             刷新
           </Button>
@@ -132,6 +157,13 @@ const MainLayout = () => {
           background: '#001529',
           padding: '0 24px'
         }}>
+          <Button
+            type="text"
+            icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={toggleSidebar}
+            style={{ color: 'white', marginRight: 12 }}
+            aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+          />
           <div style={{ display: 'flex', alignItems: 'center', marginRight: 40 }}>
             <RocketOutlined style={{ fontSize: 28, color: '#1890ff', marginRight: 12 }} />
             <Title level={3} style={{ color: 'white', margin: 0 }}>
