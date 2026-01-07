@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime
 import re
 import os
+import time
 from collections import Counter
 
 from app.utils.logger import get_logger
@@ -22,15 +23,27 @@ class ExcelProcessor:
         self.sheets_data: Dict[str, pd.DataFrame] = {}
         self.workbook = None
         self.logger = get_logger("excel_processor")
+        self._attendance_cache: Optional[pd.DataFrame] = None
+        self._travel_cache: Dict[str, pd.DataFrame] = {}
+        self._combined_travel_cache: Optional[pd.DataFrame] = None
         
     def load_all_sheets(self) -> Dict[str, pd.DataFrame]:
         """
         加载所有 Sheet 数据
         """
         try:
-            # 使用 pandas 读取所有 sheets
+            start = time.perf_counter()
+            self.logger.info(f"开始读取 Excel 文件: {self.file_path}")
             all_sheets = pd.read_excel(self.file_path, sheet_name=None)
+            elapsed = time.perf_counter() - start
+
             self.sheets_data = all_sheets
+            self._attendance_cache = None
+            self._travel_cache = {}
+            self._combined_travel_cache = None
+
+            sheet_names = ", ".join(all_sheets.keys())
+            self.logger.info(f"Excel 读取完成（{sheet_names}），耗时 {elapsed:.2f}s")
             
             # 同时用 openpyxl 加载，以便后续回写时保留格式
             self.workbook = load_workbook(self.file_path)
@@ -60,10 +73,13 @@ class ExcelProcessor:
         """获取指定 Sheet"""
         return self.sheets_data.get(sheet_name)
     
-    def clean_attendance_data(self) -> pd.DataFrame:
+    def clean_attendance_data(self, use_cache: bool = True) -> pd.DataFrame:
         """
         清洗考勤数据（状态明细）
         """
+        if use_cache and self._attendance_cache is not None:
+            return self._attendance_cache
+
         df = self.get_sheet("状态明细")
         if df is None:
             return pd.DataFrame()
@@ -81,13 +97,19 @@ class ExcelProcessor:
         
         # 删除空行
         df = df.dropna(subset=['姓名'], how='all')
+
+        if use_cache:
+            self._attendance_cache = df
         
         return df
     
-    def clean_travel_data(self, sheet_name: str) -> pd.DataFrame:
+    def clean_travel_data(self, sheet_name: str, use_cache: bool = True) -> pd.DataFrame:
         """
         清洗差旅数据（机票/酒店/火车票）
         """
+        if use_cache and sheet_name in self._travel_cache:
+            return self._travel_cache[sheet_name]
+
         df = self.get_sheet(sheet_name)
         if df is None:
             return pd.DataFrame()
@@ -112,8 +134,46 @@ class ExcelProcessor:
             df['姓名'] = df['差旅人员姓名']
         elif '预订人姓名' in df.columns:
             df['姓名'] = df['预订人姓名']
+
+        if use_cache:
+            self._travel_cache[sheet_name] = df
         
         return df
+
+    def _get_combined_travel_df(self) -> pd.DataFrame:
+        """
+        获取带消费日期和差旅类型的汇总差旅数据（使用缓存避免重复计算）
+        """
+        if self._combined_travel_cache is not None:
+            return self._combined_travel_cache
+
+        frames: List[pd.DataFrame] = []
+        date_columns = {
+            '机票': '出发日期',
+            '酒店': '入住日期',
+            '火车票': '出发日期'
+        }
+
+        for sheet_name, date_col in date_columns.items():
+            df = self.clean_travel_data(sheet_name)
+            if df.empty or date_col not in df.columns:
+                continue
+
+            # 仅保留需要的字段，避免复制无关数据
+            temp = df[['姓名', date_col]].copy()
+            temp = temp[temp[date_col].notna()]
+            if temp.empty:
+                continue
+
+            temp['消费日期'] = temp[date_col].dt.date
+            temp['差旅类型'] = sheet_name
+            frames.append(temp[['姓名', '消费日期', '差旅类型']])
+
+        combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+            columns=['姓名', '消费日期', '差旅类型']
+        )
+        self._combined_travel_cache = combined
+        return combined
     
     def extract_project_code(self, project_str: str) -> Tuple[str, str]:
         """
@@ -404,82 +464,65 @@ class ExcelProcessor:
         
         # 获取考勤数据
         attendance_df = self.clean_attendance_data()
+        if attendance_df.empty or '当日状态判断' not in attendance_df.columns:
+            return anomalies
+        if '日期' not in attendance_df.columns:
+            return anomalies
+
+        # 仅保留有日期的数据，提前计算日期字段，避免后续重复转换
+        attendance_df = attendance_df.dropna(subset=['日期']).copy()
         if attendance_df.empty:
             return anomalies
-        
-        # 获取所有差旅数据
-        travel_sheets = ['机票', '酒店', '火车票']
-        all_travel = []
-        
-        for sheet_name in travel_sheets:
-            df = self.clean_travel_data(sheet_name)
-            if not df.empty:
-                df['差旅类型'] = sheet_name
-                all_travel.append(df)
-        
-        if not all_travel:
+
+        attendance_df['日期'] = attendance_df['日期'].dt.date
+        attendance_df['当日状态判断'] = attendance_df['当日状态判断'].astype(str)
+        if '一级部门' in attendance_df.columns:
+            attendance_df['一级部门'] = attendance_df['一级部门'].fillna('未知部门')
+        else:
+            attendance_df['一级部门'] = '未知部门'
+
+        # 只关注考勤显示上班的记录，缩小计算范围
+        work_attendance = attendance_df[
+            attendance_df['当日状态判断'].str.contains('上班', na=False)
+        ]
+        if work_attendance.empty:
             return anomalies
-        
-        travel_df = pd.concat(all_travel, ignore_index=True)
-        
-        # 按姓名和日期分组
-        for name in attendance_df['姓名'].unique():
-            if pd.isna(name):
-                continue
-            
-            person_attendance = attendance_df[attendance_df['姓名'] == name]
-            person_travel = travel_df[travel_df['姓名'] == name]
-            
-            if person_travel.empty:
-                continue
-            
-            for _, att_row in person_attendance.iterrows():
-                att_date = att_row.get('日期')
-                att_status = att_row.get('当日状态判断', '')
-                
-                if pd.isna(att_date):
-                    continue
-                
-                # 查找当日的差旅记录
-                day_travel = person_travel[
-                    person_travel['出发日期'].dt.date == att_date.date()
-                ] if '出发日期' in person_travel.columns else pd.DataFrame()
-                
-                # 获取部门信息
-                department = att_row.get('一级部门', '未知部门')
-                if pd.isna(department):
-                    department = '未知部门'
-                
-                # 异常 A: 考勤显示上班，但有差旅消费
-                if '上班' in att_status and not day_travel.empty:
-                    travel_list = day_travel['差旅类型'].tolist()
-                    anomalies.append({
-                        'name': name,
-                        'date': att_date.strftime('%Y-%m-%d'),
-                        'department': department,
-                        'anomaly_type': 'A',
-                        'attendance_status': att_status,
-                        'travel_records': travel_list,
-                        'description': f'{name} 在 {att_date.strftime("%Y-%m-%d")} 考勤显示上班，但有 {",".join(travel_list)} 消费记录'
-                    })
-                
-                # 异常 B: 考勤显示出差，但无差旅消费
-                # 注意：根据业务需求，此类异常已被标记为"可忽略"，不纳入异常统计
-                # 原因：出差不一定产生差旅消费（例如：客户提供交通/住宿、本地出差等）
-                # 如需启用此检测，请取消以下注释
-                """
-                if '出差' in att_status and day_travel.empty:
-                    anomalies.append({
-                        'name': name,
-                        'date': att_date.strftime('%Y-%m-%d'),
-                        'department': department,
-                        'anomaly_type': 'B',
-                        'attendance_status': att_status,
-                        'travel_records': [],
-                        'description': f'{name} 在 {att_date.strftime("%Y-%m-%d")} 考勤显示出差，但无差旅消费记录'
-                    })
-                """
-        
+
+        # 聚合所有差旅数据（姓名 + 消费日期 + 差旅类型），并缓存
+        travel_df = self._get_combined_travel_df()
+        if travel_df.empty:
+            return anomalies
+
+        travel_grouped = (
+            travel_df.groupby(['姓名', '消费日期'])['差旅类型']
+            .apply(list)
+            .reset_index()
+            .rename(columns={'消费日期': '日期'})
+        )
+
+        # 基于姓名+日期一次性关联，避免双重 for 循环
+        merged = work_attendance.merge(
+            travel_grouped,
+            on=['姓名', '日期'],
+            how='inner'
+        )
+
+        for _, row in merged.iterrows():
+            date_val = row.get('日期')
+            date_str = date_val.strftime('%Y-%m-%d') if hasattr(date_val, 'strftime') else str(date_val)
+            travel_list = row.get('差旅类型', []) or []
+            name = row.get('姓名', '')
+            anomalies.append({
+                'name': name,
+                'date': date_str,
+                'department': row.get('一级部门', '未知部门'),
+                'anomaly_type': 'A',
+                'attendance_status': row.get('当日状态判断', ''),
+                'travel_records': travel_list,
+                'description': f'{name} 在 {date_str} 考勤显示上班，但有 {",".join(travel_list)} 消费记录'
+            })
+
+        self.logger.info(f"交叉验证完成，发现 {len(anomalies)} 条异常记录")
         return anomalies
     
     def analyze_booking_behavior(self) -> Dict[str, Any]:

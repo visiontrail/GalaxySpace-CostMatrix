@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any
 import os
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -13,8 +14,10 @@ from app.services.excel_processor import ExcelProcessor
 from app.services.ppt_export_service import PPTExporter
 from app.models.schemas import AnalysisResult, DashboardData
 from app.config import settings
+from app.utils.logger import get_logger
 
 router = APIRouter()
+logger = get_logger("api.routes")
 
 
 @router.get("/health")
@@ -79,17 +82,28 @@ async def analyze_excel(file_path: str):
         raise HTTPException(status_code=404, detail="文件不存在")
     
     try:
+        logger.info(f"开始分析文件: {file_path}")
+        overall_start = time.perf_counter()
+
+        def timed_step(step_name: str, func, *args, **kwargs):
+            step_start = time.perf_counter()
+            result = func(*args, **kwargs)
+            logger.info(f"{step_name}完成，用时 {(time.perf_counter() - step_start) * 1000:.0f}ms")
+            return result
+
         processor = ExcelProcessor(file_path)
+        load_start = time.perf_counter()
         processor.load_all_sheets()
+        logger.info(f"文件加载完成，用时 {(time.perf_counter() - load_start) * 1000:.0f}ms")
         
         # 执行各项分析（部门Top 15，项目Top 20）
-        project_costs = processor.aggregate_project_costs(top_n=20)
-        department_costs = processor.calculate_department_costs(top_n=15)
-        anomalies = processor.cross_check_attendance_travel()
-        booking_behavior = processor.analyze_booking_behavior()
-        attendance_summary = processor.get_attendance_summary()
-        over_standard_stats = processor.count_over_standard_orders()
-        order_stats = processor.count_total_orders()
+        project_costs = timed_step("项目成本归集", processor.aggregate_project_costs, top_n=20)
+        department_costs = timed_step("部门成本汇总", processor.calculate_department_costs, top_n=15)
+        anomalies = timed_step("考勤/差旅交叉验证", processor.cross_check_attendance_travel)
+        booking_behavior = timed_step("预订行为分析", processor.analyze_booking_behavior)
+        attendance_summary = timed_step("考勤汇总", processor.get_attendance_summary)
+        over_standard_stats = timed_step("超标统计", processor.count_over_standard_orders)
+        order_stats = timed_step("订单统计", processor.count_total_orders)
         over_standard_breakdown = {
             k: v for k, v in over_standard_stats.items() 
             if k != 'flight_over_types'
@@ -150,7 +164,9 @@ async def analyze_excel(file_path: str):
             'project_top10': project_top10,
             'anomalies': anomaly_list
         }
-        
+
+        logger.info(f"分析流程结束，总耗时 {time.perf_counter() - overall_start:.2f}s")
+
         return AnalysisResult(
             success=True,
             message="分析完成",
@@ -158,6 +174,7 @@ async def analyze_excel(file_path: str):
         )
     
     except Exception as e:
+        logger.exception(f"分析失败: {e}")
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
 
 
