@@ -93,7 +93,7 @@ async def analyze_excel(file_path: str):
 
         processor = ExcelProcessor(file_path)
         load_start = time.perf_counter()
-        processor.load_all_sheets()
+        processor.load_all_sheets(load_workbook_obj=False)
         logger.info(f"文件加载完成，用时 {(time.perf_counter() - load_start) * 1000:.0f}ms")
         
         # 执行各项分析（部门Top 15，项目Top 20）
@@ -188,7 +188,7 @@ async def export_results(file_path: str):
     
     try:
         processor = ExcelProcessor(file_path)
-        processor.load_all_sheets()
+        processor.load_all_sheets(load_workbook_obj=True)
         
         # 执行分析
         results = {

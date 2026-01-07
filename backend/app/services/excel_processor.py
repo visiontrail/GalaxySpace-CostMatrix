@@ -27,9 +27,12 @@ class ExcelProcessor:
         self._travel_cache: Dict[str, pd.DataFrame] = {}
         self._combined_travel_cache: Optional[pd.DataFrame] = None
         
-    def load_all_sheets(self) -> Dict[str, pd.DataFrame]:
+    def load_all_sheets(self, load_workbook_obj: bool = False) -> Dict[str, pd.DataFrame]:
         """
         加载所有 Sheet 数据
+
+        Args:
+            load_workbook_obj: 是否同时加载 openpyxl Workbook 对象（仅在需要回写时启用）
         """
         try:
             start = time.perf_counter()
@@ -45,8 +48,13 @@ class ExcelProcessor:
             sheet_names = ", ".join(all_sheets.keys())
             self.logger.info(f"Excel 读取完成（{sheet_names}），耗时 {elapsed:.2f}s")
             
-            # 同时用 openpyxl 加载，以便后续回写时保留格式
-            self.workbook = load_workbook(self.file_path)
+            # 部分分析场景不需要 Workbook，仅在回写等场景按需加载
+            if load_workbook_obj:
+                wb_start = time.perf_counter()
+                self.workbook = load_workbook(self.file_path, keep_links=False)
+                self.logger.info(f"openpyxl 工作簿加载完成，耗时 {time.perf_counter() - wb_start:.2f}s")
+            else:
+                self.workbook = None
             
             return self.sheets_data
         except Exception as e:
