@@ -20,7 +20,7 @@ import {
 } from '@ant-design/icons'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { uploadFile, analyzeExcel } from '@/services/api'
-import type { AnalysisResult, UploadResponse, UploadRecord } from '@/types'
+import type { AnalysisResult, UploadRecord } from '@/types'
 import type { UploadContextValue } from '@/layouts/MainLayout'
 
 const { Dragger } = AntUpload
@@ -32,7 +32,7 @@ const Upload = () => {
   const [uploading, setUploading] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [uploadedFilePath, setUploadedFilePath] = useState<string>('')
-  const [uploadedFile, setUploadedFile] = useState<UploadResponse | null>(null)
+  const [uploadedFile, setUploadedFile] = useState<UploadRecord | null>(null)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [currentStep, setCurrentStep] = useState(0)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
@@ -110,15 +110,23 @@ const Upload = () => {
         message.success('数据分析完成！')
         setCurrentStep(3)
         setAnalysisResult(result.data)
-        const nextSelected: UploadRecord = uploadedFile || {
-          file_path: filePath,
-          file_name: uploadedFile?.file_name || filePath.split('/').pop() || filePath,
-          file_size: uploadedFile?.file_size || 0,
-          sheets: uploadedFile?.sheets || [],
-          upload_time: uploadedFile?.upload_time,
-          parsed: true,
-          last_analyzed_at: new Date().toISOString()
-        }
+        const analyzedAt = new Date().toISOString()
+        const previousFile = uploadedFile
+        const nextSelected: UploadRecord = previousFile
+          ? {
+              ...previousFile,
+              parsed: true,
+              last_analyzed_at: analyzedAt
+            }
+          : {
+              file_path: filePath,
+              file_name: filePath.split('/').pop() || filePath,
+              file_size: 0,
+              sheets: [],
+              upload_time: null,
+              parsed: true,
+              last_analyzed_at: analyzedAt
+            }
         selectUpload(nextSelected)
         refreshUploads()
         
