@@ -66,8 +66,11 @@ fi
 echo "🔄 重启服务（利用 Docker 缓存层）..."
 echo ""
 
-# 方案1：仅重启服务（速度最快，适用于后端代码变更）
-echo "📋 后端代码已通过 volume 挂载，支持热重载"
+# 方案1：重启后端服务（应用后端代码变更）
+echo "📋 重启后端服务（应用后端代码变更）..."
+$COMPOSE_CMD restart backend
+
+echo ""
 echo "🔨 重新构建前端镜像（应用前端代码变更）..."
 $COMPOSE_CMD build frontend
 
