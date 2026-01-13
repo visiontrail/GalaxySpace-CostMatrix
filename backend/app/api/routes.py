@@ -660,3 +660,45 @@ async def get_department_details(file_path: str, department_name: str, level: in
     except Exception as e:
         logger.exception(f"获取部门详情失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取部门详情失败: {str(e)}")
+
+
+@router.get("/departments/level1/statistics")
+async def get_level1_department_statistics(file_path: str, level1_name: str):
+    """
+    获取一级部门的汇总统计数据（用于二级部门表格下方的统计展示）
+
+    Args:
+        file_path: Excel 文件路径
+        level1_name: 一级部门名称
+
+    Returns:
+        包含以下统计数据的字典:
+        - total_travel_cost: 累计差旅成本
+        - attendance_days_distribution: 考勤天数分布
+        - travel_ranking: 出差排行榜（按人）
+        - avg_hours_ranking: 平均工时排行榜（按人）
+        - level2_department_stats: 二级部门统计列表（包含所有指标）
+    """
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    try:
+        processor = ExcelProcessor(file_path)
+        processor.load_all_sheets(load_workbook_obj=False)
+
+        statistics = processor.get_level1_department_statistics(level1_name)
+
+        if not statistics:
+            raise HTTPException(status_code=404, detail=f"未找到一级部门: {level1_name}")
+
+        return AnalysisResult(
+            success=True,
+            message="获取一级部门统计数据成功",
+            data=statistics
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"获取一级部门统计数据失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取一级部门统计数据失败: {str(e)}")

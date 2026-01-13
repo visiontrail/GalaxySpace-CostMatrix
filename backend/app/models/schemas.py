@@ -133,3 +133,28 @@ class DepartmentListItem(BaseModel):
     person_count: int
     total_cost: float
     avg_work_hours: float
+
+
+class Level2DepartmentStats(BaseModel):
+    """二级部门统计（用于一级部门统计展示）"""
+    name: str
+    person_count: int
+    avg_work_hours: float
+    workday_attendance_days: int
+    weekend_work_days: int
+    weekend_attendance_count: int
+    travel_days: int
+    leave_days: int
+    anomaly_days: int
+    late_after_1930_count: int
+    total_cost: float
+
+
+class Level1DepartmentStatistics(BaseModel):
+    """一级部门汇总统计数据"""
+    department_name: str
+    total_travel_cost: float
+    attendance_days_distribution: Dict[str, int]
+    travel_ranking: List[EmployeeRanking]
+    avg_hours_ranking: List[EmployeeRanking]
+    level2_department_stats: List[Level2DepartmentStats]

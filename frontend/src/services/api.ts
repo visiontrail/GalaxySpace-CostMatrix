@@ -250,5 +250,58 @@ export const getDepartmentDetails = async (
   }) as Promise<ApiResponse<DepartmentDetailMetrics>>
 }
 
+/**
+ * 获取一级部门的汇总统计数据（用于二级部门表格下方的统计展示）
+ * @param filePath 文件路径
+ * @param level1Name 一级部门名称
+ * @returns 一级部门统计数据
+ */
+export const getLevel1DepartmentStatistics = async (
+  filePath: string,
+  level1Name: string
+): Promise<ApiResponse<{
+  department_name: string
+  total_travel_cost: number
+  attendance_days_distribution: Record<string, number>
+  travel_ranking: Array<{ name: string; value: number; detail?: string }>
+  avg_hours_ranking: Array<{ name: string; value: number; detail?: string }>
+  level2_department_stats: Array<{
+    name: string
+    person_count: number
+    avg_work_hours: number
+    workday_attendance_days: number
+    weekend_work_days: number
+    weekend_attendance_count: number
+    travel_days: number
+    leave_days: number
+    anomaly_days: number
+    late_after_1930_count: number
+    total_cost: number
+  }>
+}>> => {
+  return apiClient.get('/departments/level1/statistics', {
+    params: { file_path: filePath, level1_name: level1Name }
+  }) as Promise<ApiResponse<{
+    department_name: string
+    total_travel_cost: number
+    attendance_days_distribution: Record<string, number>
+    travel_ranking: Array<{ name: string; value: number; detail?: string }>
+    avg_hours_ranking: Array<{ name: string; value: number; detail?: string }>
+    level2_department_stats: Array<{
+      name: string
+      person_count: number
+      avg_work_hours: number
+      workday_attendance_days: number
+      weekend_work_days: number
+      weekend_attendance_count: number
+      travel_days: number
+      leave_days: number
+      anomaly_days: number
+      late_after_1930_count: number
+      total_cost: number
+    }>
+  }>>
+}
+
 // 导出 axios 实例供特殊情况使用
 export default apiClient
