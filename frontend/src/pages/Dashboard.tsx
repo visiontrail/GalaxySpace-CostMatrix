@@ -866,7 +866,7 @@ const Dashboard = () => {
           <Card variant="borderless" hoverable>
             <Statistic
               title="项目数量"
-              value={data.project_top10.length}
+              value={data.summary.total_project_count ?? data.project_top10.length}
               prefix={<ProjectOutlined />}
               suffix="个"
               valueStyle={{ color: '#eb2f96' }}
@@ -996,15 +996,15 @@ const Dashboard = () => {
       </Card>
 
       {/* 项目统计表格 */}
-      <Card 
-        title={<><ProjectOutlined /> 项目成本详情（Top 10）</>}
+      <Card
+        title={<><ProjectOutlined /> 项目成本详情（Top 20 + 其他）</>}
         variant="borderless"
         style={{ marginBottom: 24 }}
       >
         <Table
           dataSource={data.project_top10}
           columns={projectColumns}
-          rowKey="code"
+          rowKey={(record) => record.code || '其他'}
           pagination={false}
           scroll={{ x: 600 }}
           size="middle"

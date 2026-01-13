@@ -185,8 +185,8 @@ async def analyze_excel(file_path: str):
         processor.load_all_sheets(load_workbook_obj=False)
         logger.info(f"文件加载完成，用时 {(time.perf_counter() - load_start) * 1000:.0f}ms")
         
-        # 执行各项分析（部门Top 15，项目Top 20）
-        project_costs = timed_step("项目成本归集", processor.aggregate_project_costs, top_n=20)
+        # 执行各项分析（部门Top 15，项目Top 20 + 其他）
+        project_costs, total_project_count = timed_step("项目成本归集", processor.aggregate_project_costs, top_n=20)
         department_costs = timed_step("部门成本汇总", processor.calculate_department_costs, top_n=15)
         anomalies = timed_step("考勤/差旅交叉验证", processor.cross_check_attendance_travel)
         booking_behavior = timed_step("预订行为分析", processor.analyze_booking_behavior)
@@ -247,7 +247,8 @@ async def analyze_excel(file_path: str):
                 'order_breakdown': order_stats,
                 'over_standard_count': over_standard_stats.get('total', 0),
                 'over_standard_breakdown': over_standard_breakdown,
-                'flight_over_type_breakdown': flight_over_type_breakdown
+                'flight_over_type_breakdown': flight_over_type_breakdown,
+                'total_project_count': total_project_count
             },
             'department_stats': department_stats,
             'project_top10': project_top10,

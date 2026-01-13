@@ -357,46 +357,36 @@ class ExcelProcessor:
                 self.logger.error(f"      原始总计: ¥{total_amount:,.2f}")
                 self.logger.error(f"      聚合总计: ¥{grouped_total:,.2f}")
             
-            self.logger.info(f"\n🏆 项目成本排名（Top {min(top_n, total_count)}）:")
-            
+            self.logger.info(f"\n🏆 项目成本排名（Top {min(20, total_count)}）:")
+
+            # 日志始终只显示前20个项目的详细信息（保持日志可读性）
+            log_top_n = min(20, total_count)
+
             # 如果项目数量超过 top_n，将超出部分汇总到"其他"
             if total_count > top_n:
                 self.logger.info(f"   - 展示前{top_n}个项目")
                 self.logger.info(f"   - 其余{total_count - top_n}个项目汇总到\"其他\"")
-                
-                # 前 top_n 个项目
+
+                # 前 top_n 个项目（添加到结果）
                 for idx, row in grouped.head(top_n).iterrows():
                     project_details = df_projects[
                         df_projects['project_code'] == row['project_code']
                     ].to_dict('records')
-                    
+
                     # 计算分类成本
                     project_df = df_projects[df_projects['project_code'] == row['project_code']]
                     flight_cost = project_df[project_df['type'] == '机票']['amount'].sum()
                     hotel_cost = project_df[project_df['type'] == '酒店']['amount'].sum()
                     train_cost = project_df[project_df['type'] == '火车票']['amount'].sum()
-                    
-                    self.logger.info(f"\n   #{idx+1}. {row['project_code']} - {row['project_name']}")
-                    self.logger.info(f"      总成本: ¥{row['amount']:,.2f} | 订单数: {int(row['person'])}")
-                    self.logger.info(f"      ├─ 机票: ¥{flight_cost:,.2f}")
-                    self.logger.info(f"      ├─ 酒店: ¥{hotel_cost:,.2f}")
-                    self.logger.info(f"      └─ 火车票: ¥{train_cost:,.2f}")
-                    
-                    # 输出前3条明细
-                    if len(project_details) > 0:
-                        self.logger.debug(f"      明细（前3条）:")
-                        for i, detail in enumerate(project_details[:3], 1):
-                            person = detail.get('person', '未知')
-                            amount = detail.get('amount', 0)
-                            travel_type = detail.get('type', '未知')
-                            date_val = detail.get('date', '')
-                            # 安全的日期格式化
-                            if pd.notna(date_val) and hasattr(date_val, 'strftime'):
-                                date_str = date_val.strftime('%Y-%m-%d')
-                            else:
-                                date_str = str(date_val) if pd.notna(date_val) else '未知'
-                            self.logger.debug(f"         {i}. {travel_type} | {person} | ¥{amount:,.2f} | {date_str}")
-                    
+
+                    # 日志只输出前20个
+                    if idx < log_top_n:
+                        self.logger.info(f"\n   #{idx+1}. {row['project_code']} - {row['project_name']}")
+                        self.logger.info(f"      总成本: ¥{row['amount']:,.2f} | 订单数: {int(row['person'])}")
+                        self.logger.info(f"      ├─ 机票: ¥{flight_cost:,.2f}")
+                        self.logger.info(f"      ├─ 酒店: ¥{hotel_cost:,.2f}")
+                        self.logger.info(f"      └─ 火车票: ¥{train_cost:,.2f}")
+
                     results.append({
                         'project_code': row['project_code'],
                         'project_name': row['project_name'],
@@ -461,8 +451,8 @@ class ExcelProcessor:
             self.logger.info("=" * 80 + "\n")
         else:
             self.logger.warning("⚠️  没有找到任何项目记录")
-        
-        return results
+
+        return results, total_count
     
     def cross_check_attendance_travel(self) -> List[Dict[str, Any]]:
         """
