@@ -10,6 +10,9 @@ import type {
   UploadRecord,
   ProjectDetail,
   ProjectOrderRecord,
+  DepartmentHierarchy,
+  DepartmentListItem,
+  DepartmentDetailMetrics,
 } from '@/types'
 
 // API 基础地址
@@ -188,6 +191,63 @@ export const getProjectOrders = async (
     orders: ProjectOrderRecord[]
     total_count: number
   }>>
+}
+
+/**
+ * 获取部门层级结构
+ * @param filePath 文件路径
+ * @returns 部门层级结构
+ */
+export const getDepartmentHierarchy = async (
+  filePath: string
+): Promise<ApiResponse<DepartmentHierarchy>> => {
+  return apiClient.get('/departments/hierarchy', {
+    params: { file_path: filePath }
+  }) as Promise<ApiResponse<DepartmentHierarchy>>
+}
+
+/**
+ * 获取部门列表
+ * @param filePath 文件路径
+ * @param level 部门层级 (1=一级, 2=二级, 3=三级)
+ * @param parent 父部门名称（level>1时必需）
+ * @returns 部门列表
+ */
+export const getDepartmentList = async (
+  filePath: string,
+  level: number,
+  parent?: string
+): Promise<ApiResponse<{
+  level: number
+  parent?: string
+  departments: DepartmentListItem[]
+  total_count: number
+}>> => {
+  return apiClient.get('/departments/list', {
+    params: { file_path: filePath, level, parent }
+  }) as Promise<ApiResponse<{
+    level: number
+    parent?: string
+    departments: DepartmentListItem[]
+    total_count: number
+  }>>
+}
+
+/**
+ * 获取指定部门的详细指标
+ * @param filePath 文件路径
+ * @param departmentName 部门名称
+ * @param level 部门层级 (1=一级, 2=二级, 3=三级，默认3)
+ * @returns 部门详细指标
+ */
+export const getDepartmentDetails = async (
+  filePath: string,
+  departmentName: string,
+  level: number = 3
+): Promise<ApiResponse<DepartmentDetailMetrics>> => {
+  return apiClient.get('/departments/details', {
+    params: { file_path: filePath, department_name: departmentName, level }
+  }) as Promise<ApiResponse<DepartmentDetailMetrics>>
 }
 
 // 导出 axios 实例供特殊情况使用

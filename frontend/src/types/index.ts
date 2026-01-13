@@ -114,3 +114,55 @@ export interface UploadRecord {
 }
 
 export type UploadResponse = UploadRecord
+
+// ============ 部门层级结构 ============
+export interface DepartmentHierarchy {
+  level1: string[]                    // 一级部门列表
+  level2: Record<string, string[]>    // 一级部门 -> 二级部门列表
+  level3: Record<string, string[]>    // 二级部门 -> 三级部门列表
+}
+
+// ============ 部门列表项 ============
+export interface DepartmentListItem {
+  name: string                        // 部门名称
+  level: number                       // 部门层级 (1=一级, 2=二级, 3=三级)
+  parent?: string                     // 父部门名称
+  person_count: number                // 人数
+  total_cost: number                  // 总成本
+  avg_work_hours: number              // 平均工时
+}
+
+// ============ 员工排行榜项 ============
+export interface EmployeeRanking {
+  name: string                        // 员工姓名
+  value: number                       // 数值（用于排序）
+  detail?: string                     // 详情展示
+}
+
+// ============ 部门详细指标 ============
+export interface DepartmentDetailMetrics {
+  department_name: string             // 部门名称
+  department_level: string            // 部门层级
+  parent_department?: string | null   // 父部门
+
+  // 考勤相关指标
+  attendance_days_distribution: Record<string, number>  // 当月考勤天数分布
+  weekend_work_days: number           // 公休日上班天数
+  workday_attendance_days: number     // 工作日出勤天数
+  avg_work_hours: number              // 工作日平均工时
+
+  // 状态天数
+  travel_days: number                 // 出差天数
+  leave_days: number                  // 请假天数
+
+  // 异常统计
+  anomaly_days: number                // 异常天数
+  late_after_1930_count: number       // 晚上7:30后下班人数
+  weekend_attendance_count: number    // 周末出勤次数
+
+  // 排行榜
+  travel_ranking: EmployeeRanking[]   // 出差排行榜
+  anomaly_ranking: EmployeeRanking[]  // 异常排行榜
+  latest_checkout_ranking: EmployeeRanking[]  // 最晚下班排行榜
+  longest_hours_ranking: EmployeeRanking[]    // 最长工时排行榜
+}

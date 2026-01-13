@@ -82,3 +82,54 @@ class DashboardData(BaseModel):
     attendance_summary: Dict[str, Any]
 
 
+class EmployeeRanking(BaseModel):
+    """员工排行榜项"""
+    name: str
+    value: float
+    detail: Optional[str] = None
+
+
+class DepartmentDetailMetrics(BaseModel):
+    """部门详细指标"""
+    # 基本信息
+    department_name: str
+    department_level: str  # 一级部门/二级部门/三级部门
+    parent_department: Optional[str] = None
+
+    # 考勤相关指标
+    attendance_days_distribution: Dict[str, int]  # 当月考勤天数分布
+    weekend_work_days: int  # 公休日上班天数
+    workday_attendance_days: int  # 工作日出勤天数
+    avg_work_hours: float  # 工作日平均工时
+
+    # 状态天数
+    travel_days: int  # 出差天数
+    leave_days: int  # 请假天数
+
+    # 异常统计
+    anomaly_days: int  # 异常天数
+    late_after_1930_count: int  # 晚上7:30后下班人数
+    weekend_attendance_count: int  # 周末出勤次数
+
+    # 排行榜
+    travel_ranking: List[EmployeeRanking]  # 出差排行榜
+    anomaly_ranking: List[EmployeeRanking]  # 异常排行榜
+    latest_checkout_ranking: List[EmployeeRanking]  # 最晚下班排行榜
+    longest_hours_ranking: List[EmployeeRanking]  # 最长工时排行榜
+
+
+class DepartmentHierarchy(BaseModel):
+    """部门层级结构"""
+    level1: List[str]  # 一级部门列表
+    level2: Dict[str, List[str]]  # 一级部门 -> 二级部门列表
+    level3: Dict[str, List[str]]  # 二级部门 -> 三级部门列表
+
+
+class DepartmentListItem(BaseModel):
+    """部门列表项"""
+    name: str
+    level: int  # 1=一级, 2=二级, 3=三级
+    parent: Optional[str] = None
+    person_count: int
+    total_cost: float
+    avg_work_hours: float

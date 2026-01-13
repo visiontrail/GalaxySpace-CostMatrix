@@ -1177,3 +1177,336 @@ class ExcelProcessor:
         records.sort(key=lambda x: x['date'], reverse=True)
 
         return records
+
+    def get_department_hierarchy(self) -> Dict[str, Any]:
+        """
+        获取部门层级结构
+
+        Returns:
+            {
+                'level1': ['一级部门1', '一级部门2', ...],
+                'level2': {'一级部门1': ['二级部门1', '二级部门2'], ...},
+                'level3': {'二级部门1': ['三级部门1', '三级部门2'], ...}
+            }
+        """
+        df = self.clean_attendance_data()
+        if df.empty:
+            return {'level1': [], 'level2': {}, 'level3': {}}
+
+        result = {
+            'level1': [],
+            'level2': {},
+            'level3': {}
+        }
+
+        # 获取一级部门
+        if '一级部门' in df.columns:
+            result['level1'] = sorted(df['一级部门'].dropna().unique().tolist())
+
+        # 获取二级部门（按一级部门分组）
+        if '一级部门' in df.columns and '二级部门' in df.columns:
+            for l1 in result['level1']:
+                l2_list = df[df['一级部门'] == l1]['二级部门'].dropna().unique().tolist()
+                result['level2'][l1] = sorted(l2_list)
+
+        # 获取三级部门（按二级部门分组）
+        if '二级部门' in df.columns and '三级部门' in df.columns:
+            for l1, l2_list in result['level2'].items():
+                for l2 in l2_list:
+                    l3_list = df[df['二级部门'] == l2]['三级部门'].dropna().unique().tolist()
+                    result['level3'][l2] = sorted(l3_list)
+
+        return result
+
+    def get_department_list(self, level: int, parent: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        获取部门列表
+
+        Args:
+            level: 部门层级 (1=一级, 2=二级, 3=三级)
+            parent: 父部门名称（level>1时必需）
+
+        Returns:
+            部门列表，每个部门包含人数、成本、平均工时等信息
+        """
+        df = self.clean_attendance_data()
+        if df.empty:
+            self.logger.warning(f"get_department_list: 考勤数据为空，level={level}, parent={parent}")
+            return []
+
+        # 确定部门列名（中文数字：一级部门、二级部门、三级部门）
+        level_name_map = {1: '一级部门', 2: '二级部门', 3: '三级部门'}
+        dept_col = level_name_map.get(level)
+
+        if not dept_col or dept_col not in df.columns:
+            self.logger.warning(f"get_department_list: 缺少部门列 '{dept_col}'（level={level}），可用列: {df.columns.tolist()}")
+            return []
+
+        # 筛选部门
+        filtered_df = df.copy()
+
+        if level == 2 and parent:
+            filtered_df = filtered_df[filtered_df['一级部门'] == parent]
+        elif level == 3 and parent:
+            filtered_df = filtered_df[filtered_df['二级部门'] == parent]
+
+        # 检查筛选后的数据
+        if filtered_df.empty:
+            self.logger.warning(f"get_department_list: 筛选后数据为空，level={level}, parent={parent}")
+            return []
+
+        departments = filtered_df[dept_col].dropna().unique().tolist()
+        self.logger.info(f"get_department_list: 找到 {len(departments)} 个{dept_col}: {departments[:5]}...")
+
+        # 获取差旅数据用于成本计算
+        dept_costs = self._calculate_costs_by_department(filtered_df, dept_col)
+
+        results = []
+        for dept in departments:
+            dept_data = filtered_df[filtered_df[dept_col] == dept]
+
+            # 计算人数
+            person_count = dept_data['姓名'].nunique() if '姓名' in dept_data.columns else 0
+
+            # 计算平均工时
+            avg_hours = 0
+            if '工时' in dept_data.columns:
+                valid_hours = dept_data['工时'].dropna()
+                if not valid_hours.empty:
+                    avg_hours = float(valid_hours.mean())
+
+            # 获取成本
+            cost_info = dept_costs.get(dept, {'total_cost': 0, 'flight_cost': 0, 'hotel_cost': 0, 'train_cost': 0})
+
+            results.append({
+                'name': dept,
+                'level': level,
+                'parent': parent,
+                'person_count': int(person_count),
+                'total_cost': float(cost_info['total_cost']),
+                'avg_work_hours': round(avg_hours, 2)
+            })
+
+        # 按成本降序排序
+        results.sort(key=lambda x: x['total_cost'], reverse=True)
+
+        self.logger.info(f"get_department_list: 返回 {len(results)} 个部门，前3个: {[(r['name'], r['total_cost'], r['person_count']) for r in results[:3]]}")
+
+        return results
+
+    def _calculate_costs_by_department(self, attendance_df: pd.DataFrame, dept_col: str) -> Dict[str, Dict[str, float]]:
+        """
+        计算各部门的差旅成本
+
+        Args:
+            attendance_df: 考勤数据（已按部门筛选）
+            dept_col: 部门列名
+
+        Returns:
+            {部门名: {total_cost, flight_cost, hotel_cost, train_cost}}
+        """
+        dept_costs = {}
+
+        if attendance_df.empty:
+            self.logger.warning(f"_calculate_costs_by_department: attendance_df 为空")
+            return dept_costs
+
+        # 获取姓名到部门的映射（保留所有映射，一个人可能属于多个部门）
+        name_dept_map = {}
+        for _, row in attendance_df[['姓名', dept_col]].drop_duplicates().iterrows():
+            name = row.get('姓名')
+            dept = row.get(dept_col)
+            if not name or pd.isna(name) or not dept or pd.isna(dept):
+                continue
+            if name not in name_dept_map:
+                name_dept_map[name] = []
+            if dept not in name_dept_map[name]:
+                name_dept_map[name].append(dept)
+
+        # 遍历差旅数据
+        travel_sheets = ['机票', '酒店', '火车票']
+        cost_keys = {'机票': 'flight_cost', '酒店': 'hotel_cost', '火车票': 'train_cost'}
+
+        total_records = 0
+        matched_records = 0
+
+        for sheet_name in travel_sheets:
+            df = self.clean_travel_data(sheet_name)
+            if df.empty:
+                continue
+
+            amount_col = '授信金额' if '授信金额' in df.columns else '金额'
+
+            for _, row in df.iterrows():
+                total_records += 1
+                name = row.get('姓名', '')
+                if not name or pd.isna(name):
+                    continue
+
+                depts = name_dept_map.get(name, [])
+                if not depts:
+                    continue
+
+                matched_records += 1
+                amount = row.get(amount_col, 0) or 0
+                cost_key = cost_keys[sheet_name]
+
+                # 一个人可能属于多个部门，将成本分配到所有关联部门
+                for dept in depts:
+                    if dept not in dept_costs:
+                        dept_costs[dept] = {'total_cost': 0, 'flight_cost': 0, 'hotel_cost': 0, 'train_cost': 0}
+                    dept_costs[dept][cost_key] += amount
+                    dept_costs[dept]['total_cost'] += amount
+
+        self.logger.info(f"_calculate_costs_by_department: 差旅记录 {total_records} 条，匹配 {matched_records} 条，部门数 {len(dept_costs)}")
+        return dept_costs
+
+    def get_department_detail_metrics(self, department_name: str, level: int = 3) -> Dict[str, Any]:
+        """
+        获取指定部门的详细指标（12项）
+
+        Args:
+            department_name: 部门名称
+            level: 部门层级 (1=一级, 2=二级, 3=三级)
+
+        Returns:
+            包含12项指标的字典
+        """
+        df = self.clean_attendance_data()
+        if df.empty:
+            return {}
+
+        # 确定部门列名（使用中文数字：一级部门、二级部门、三级部门）
+        level_name_map = {1: '一级部门', 2: '二级部门', 3: '三级部门'}
+        dept_col = level_name_map.get(level)
+        if not dept_col or dept_col not in df.columns:
+            return {}
+
+        # 筛选该部门的数据
+        dept_df = df[df[dept_col] == department_name].copy()
+
+        if dept_df.empty:
+            return {}
+
+        # 获取父部门
+        parent_dept = None
+        if level == 2 and '一级部门' in dept_df.columns:
+            parent_dept = dept_df['一级部门'].dropna().unique()
+            parent_dept = parent_dept[0] if len(parent_dept) > 0 else None
+        elif level == 3 and '二级部门' in dept_df.columns:
+            parent_dept = dept_df['二级部门'].dropna().unique()
+            parent_dept = parent_dept[0] if len(parent_dept) > 0 else None
+
+        # 1. 当月考勤天数分布
+        attendance_days_distribution = {}
+        if '当日状态判断' in dept_df.columns:
+            attendance_days_distribution = dept_df['当日状态判断'].value_counts().to_dict()
+
+        # 2. 公休日上班天数
+        weekend_work_days = 0
+        if '当日状态判断' in dept_df.columns:
+            weekend_work_days = int(dept_df[dept_df['当日状态判断'] == '公休日上班'].shape[0])
+
+        # 3. 工作日出勤天数
+        workday_attendance_days = 0
+        if '当日状态判断' in dept_df.columns:
+            workday_attendance_days = int(dept_df[dept_df['当日状态判断'] == '上班'].shape[0])
+
+        # 4. 工作日平均工时
+        avg_work_hours = 0
+        if '工时' in dept_df.columns:
+            valid_hours = dept_df[dept_df['当日状态判断'] == '上班']['工时'].dropna()
+            if not valid_hours.empty:
+                avg_work_hours = float(valid_hours.mean())
+
+        # 5. 出差天数
+        travel_days = 0
+        if '当日状态判断' in dept_df.columns:
+            travel_days = int(dept_df[dept_df['当日状态判断'] == '出差'].shape[0])
+
+        # 6. 请假天数
+        leave_days = 0
+        if '当日状态判断' in dept_df.columns:
+            leave_days = int(dept_df[dept_df['当日状态判断'] == '请假'].shape[0])
+
+        # 7. 异常天数（通过交叉验证）
+        anomalies = self.cross_check_attendance_travel()
+        dept_anomalies = [a for a in anomalies if a.get('department') == department_name]
+        anomaly_days = len(dept_anomalies)
+
+        # 8. 晚上7:30后下班人数
+        late_after_1930_count = 0
+        if '最晚19:30之后' in dept_df.columns:
+            late_after_1930_count = int(dept_df[dept_df['最晚19:30之后'] == '符合']['姓名'].nunique())
+
+        # 9. 周末出勤次数
+        weekend_attendance_count = 0
+        if '日期' in dept_df.columns and '当日状态判断' in dept_df.columns:
+            dept_df['weekday'] = dept_df['日期'].dt.dayofweek
+            weekend_df = dept_df[dept_df['weekday'].isin([5, 6])]  # 5=周六, 6=周日
+            weekend_attendance_count = int(weekend_df[weekend_df['当日状态判断'].isin(['上班', '出差'])].shape[0])
+
+        # 10. 出差排行榜（按出差天数）
+        travel_ranking = []
+        if '当日状态判断' in dept_df.columns:
+            travel_df = dept_df[dept_df['当日状态判断'] == '出差']
+            if not travel_df.empty and '姓名' in travel_df.columns:
+                travel_counts = travel_df['姓名'].value_counts().head(10)
+                travel_ranking = [
+                    {'name': name, 'value': int(count), 'detail': f'{count}天'}
+                    for name, count in travel_counts.items()
+                ]
+
+        # 11. 异常排行榜（按异常次数）
+        anomaly_ranking = []
+        if dept_anomalies:
+            from collections import Counter
+            anomaly_counts = Counter([a.get('name', '') for a in dept_anomalies])
+            anomaly_ranking = [
+                {'name': name, 'value': int(count), 'detail': f'{count}次'}
+                for name, count in anomaly_counts.most_common(10)
+            ]
+
+        # 12. 最晚下班排行榜
+        latest_checkout_ranking = []
+        if '最晚打卡时间' in dept_df.columns:
+            dept_df['punch_time'] = pd.to_datetime(dept_df['最晚打卡时间'], format='%H:%M:%S', errors='coerce')
+            valid_punch = dept_df[dept_df['punch_time'].notna()].sort_values('punch_time', ascending=False)
+            if not valid_punch.empty and '姓名' in valid_punch.columns:
+                for _, row in valid_punch.head(10).iterrows():
+                    latest_checkout_ranking.append({
+                        'name': row['姓名'],
+                        'value': 0,  # ECharts需要数值，这里仅用于排序
+                        'detail': row['最晚打卡时间']
+                    })
+
+        # 13. 最长工时排行榜
+        longest_hours_ranking = []
+        if '工时' in dept_df.columns:
+            valid_hours = dept_df[dept_df['工时'].notna()].sort_values('工时', ascending=False)
+            if not valid_hours.empty and '姓名' in valid_hours.columns:
+                for _, row in valid_hours.head(10).iterrows():
+                    longest_hours_ranking.append({
+                        'name': row['姓名'],
+                        'value': float(row['工时']),
+                        'detail': f'{row["工时"]:.1f}小时'
+                    })
+
+        return {
+            'department_name': department_name,
+            'department_level': f'{level}级部门',
+            'parent_department': parent_dept,
+            'attendance_days_distribution': attendance_days_distribution,
+            'weekend_work_days': weekend_work_days,
+            'workday_attendance_days': workday_attendance_days,
+            'avg_work_hours': round(avg_work_hours, 2),
+            'travel_days': travel_days,
+            'leave_days': leave_days,
+            'anomaly_days': anomaly_days,
+            'late_after_1930_count': late_after_1930_count,
+            'weekend_attendance_count': weekend_attendance_count,
+            'travel_ranking': travel_ranking,
+            'anomaly_ranking': anomaly_ranking,
+            'latest_checkout_ranking': latest_checkout_ranking,
+            'longest_hours_ranking': longest_hours_ranking
+        }

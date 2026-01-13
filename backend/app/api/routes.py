@@ -3,7 +3,7 @@ API 路由定义
 """
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
 import os
 import shutil
@@ -556,3 +556,107 @@ async def get_project_orders(file_path: str, project_code: str):
     except Exception as e:
         logger.exception(f"获取项目订单记录失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取项目订单记录失败: {str(e)}")
+
+
+@router.get("/departments/hierarchy")
+async def get_department_hierarchy(file_path: str):
+    """
+    获取部门层级结构
+    """
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    try:
+        processor = ExcelProcessor(file_path)
+        processor.load_all_sheets(load_workbook_obj=False)
+
+        hierarchy = processor.get_department_hierarchy()
+
+        return AnalysisResult(
+            success=True,
+            message="获取部门层级结构成功",
+            data=hierarchy
+        )
+
+    except Exception as e:
+        logger.exception(f"获取部门层级结构失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取部门层级结构失败: {str(e)}")
+
+
+@router.get("/departments/list")
+async def get_department_list(file_path: str, level: int, parent: Optional[str] = None):
+    """
+    获取部门列表
+
+    Args:
+        file_path: Excel 文件路径
+        level: 部门层级 (1=一级, 2=二级, 3=三级)
+        parent: 父部门名称（level>1时必需）
+    """
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    if level not in [1, 2, 3]:
+        raise HTTPException(status_code=400, detail="部门层级必须是1、2或3")
+
+    if level > 1 and not parent:
+        raise HTTPException(status_code=400, detail=f"{level}级部门需要指定父部门")
+
+    try:
+        processor = ExcelProcessor(file_path)
+        processor.load_all_sheets(load_workbook_obj=False)
+
+        departments = processor.get_department_list(level, parent)
+
+        return AnalysisResult(
+            success=True,
+            message="获取部门列表成功",
+            data={
+                "level": level,
+                "parent": parent,
+                "departments": departments,
+                "total_count": len(departments)
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f"获取部门列表失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取部门列表失败: {str(e)}")
+
+
+@router.get("/departments/details")
+async def get_department_details(file_path: str, department_name: str, level: int = 3):
+    """
+    获取指定部门的详细指标
+
+    Args:
+        file_path: Excel 文件路径
+        department_name: 部门名称
+        level: 部门层级 (1=一级, 2=二级, 3=三级，默认3)
+    """
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    if level not in [1, 2, 3]:
+        raise HTTPException(status_code=400, detail="部门层级必须是1、2或3")
+
+    try:
+        processor = ExcelProcessor(file_path)
+        processor.load_all_sheets(load_workbook_obj=False)
+
+        details = processor.get_department_detail_metrics(department_name, level)
+
+        if not details:
+            raise HTTPException(status_code=404, detail=f"未找到部门: {department_name}")
+
+        return AnalysisResult(
+            success=True,
+            message="获取部门详情成功",
+            data=details
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"获取部门详情失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取部门详情失败: {str(e)}")

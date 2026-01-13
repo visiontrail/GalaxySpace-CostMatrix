@@ -854,7 +854,7 @@ const Dashboard = () => {
       {/* 次要指标卡片 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12}>
-          <Card variant="borderless" hoverable>
+          <Card variant="borderless" hoverable onClick={() => navigate('/departments')} style={{ cursor: 'pointer' }}>
             <Statistic
               title="部门数量"
               value={data.department_stats.length}
@@ -862,6 +862,9 @@ const Dashboard = () => {
               suffix="个"
               valueStyle={{ color: '#722ed1' }}
             />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              点击查看详情
+            </Text>
           </Card>
         </Col>
         <Col xs={24} sm={12}>
