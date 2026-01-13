@@ -499,3 +499,60 @@ async def clear_data(file_path: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"清除数据失败: {str(e)}")
+
+
+@router.get("/projects")
+async def get_all_projects(file_path: str):
+    """
+    获取所有项目的详细信息
+    """
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    try:
+        processor = ExcelProcessor(file_path)
+        processor.load_all_sheets(load_workbook_obj=False)
+
+        project_details = processor.get_all_project_details()
+
+        return AnalysisResult(
+            success=True,
+            message="获取项目详情成功",
+            data={
+                "projects": project_details,
+                "total_count": len(project_details)
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f"获取项目详情失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取项目详情失败: {str(e)}")
+
+
+@router.get("/projects/{project_code}/orders")
+async def get_project_orders(file_path: str, project_code: str):
+    """
+    获取指定项目的所有订单记录
+    """
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    try:
+        processor = ExcelProcessor(file_path)
+        processor.load_all_sheets(load_workbook_obj=False)
+
+        order_records = processor.get_project_order_records(project_code)
+
+        return AnalysisResult(
+            success=True,
+            message="获取项目订单记录成功",
+            data={
+                "project_code": project_code,
+                "orders": order_records,
+                "total_count": len(order_records)
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f"获取项目订单记录失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取项目订单记录失败: {str(e)}")

@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { 
-  Card, 
-  Row, 
-  Col, 
-  Statistic, 
-  Table, 
-  Tag, 
-  Button, 
-  message, 
+import { useNavigate } from 'react-router-dom'
+import {
+  Card,
+  Row,
+  Col,
+  Statistic,
+  Table,
+  Tag,
+  Button,
+  message,
   Empty,
   Space,
   Typography,
@@ -37,6 +38,7 @@ import type { UploadContextValue } from '@/layouts/MainLayout'
 const { Title, Text } = Typography
 
 const Dashboard = () => {
+  const navigate = useNavigate()
   const [data, setData] = useState<AnalysisResult | null>(null)
   const [currentFile, setCurrentFile] = useState<string>('')
   const [currentFileName, setCurrentFileName] = useState<string>('')
@@ -863,7 +865,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12}>
-          <Card variant="borderless" hoverable>
+          <Card variant="borderless" hoverable onClick={() => navigate('/projects')} style={{ cursor: 'pointer' }}>
             <Statistic
               title="项目数量"
               value={data.summary.total_project_count ?? data.project_top10.length}
@@ -871,6 +873,9 @@ const Dashboard = () => {
               suffix="个"
               valueStyle={{ color: '#eb2f96' }}
             />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              点击查看详情
+            </Text>
           </Card>
         </Col>
       </Row>

@@ -912,5 +912,268 @@ class ExcelProcessor:
         
         # 保存文件
         self.workbook.save(output_path)
-        
+
         return output_path
+
+    def get_all_project_details(self) -> List[Dict[str, Any]]:
+        """
+        获取所有项目的详细信息（包括人员、日期范围、超标等）
+
+        Returns:
+            包含所有项目详细信息的列表
+        """
+        self.logger.info("=" * 80)
+        self.logger.info("开始获取所有项目详细信息")
+        self.logger.info("=" * 80)
+
+        results = []
+        travel_sheets = ['机票', '酒店', '火车票']
+        all_records = []
+
+        # 收集所有差旅记录
+        for sheet_name in travel_sheets:
+            df = self.clean_travel_data(sheet_name)
+            if df.empty or '项目' not in df.columns:
+                continue
+
+            amount_col = '授信金额' if '授信金额' in df.columns else '金额'
+            date_col = '出发日期' if '出发日期' in df.columns else '入住日期'
+
+            # 获取考勤数据用于部门信息
+            attendance_df = self.clean_attendance_data()
+            person_dept_map = {}
+            if not attendance_df.empty and '姓名' in attendance_df.columns and '一级部门' in attendance_df.columns:
+                person_dept_map = attendance_df[['姓名', '一级部门']].drop_duplicates().set_index('姓名')['一级部门'].to_dict()
+
+            for idx, row in df.iterrows():
+                project_str = row.get('项目', '')
+                project_code, project_name = self.extract_project_code(project_str)
+                amount = row.get(amount_col, 0)
+                person = row.get('姓名', '')
+                date_val = row.get(date_col, '')
+                department = person_dept_map.get(person, '未知部门')
+
+                # 处理日期
+                if pd.notna(date_val):
+                    if hasattr(date_val, 'strftime'):
+                        date_str = date_val.strftime('%Y-%m-%d')
+                    else:
+                        date_str = str(date_val)
+                else:
+                    date_str = ''
+
+                # 检查是否超标（需要正确判断字符串"是"或"否"）
+                is_over_standard = False
+                over_type = ''
+                over_standard_val = row.get('是否超标', '')
+                if pd.notna(over_standard_val):
+                    is_over_standard = str(over_standard_val).strip() == '是'
+                    if is_over_standard and '超标类型' in df.columns:
+                        over_type = row.get('超标类型', '')
+
+                # 计算提前预订天数
+                advance_days = None
+                if '预订日期' in df.columns and '出发日期' in df.columns:
+                    book_date = row.get('预订日期')
+                    dep_date = row.get('出发日期')
+                    if pd.notna(book_date) and pd.notna(dep_date):
+                        try:
+                            if hasattr(book_date, 'to_pydatetime'):
+                                book_date = book_date.to_pydatetime()
+                            if hasattr(dep_date, 'to_pydatetime'):
+                                dep_date = dep_date.to_pydatetime()
+                            advance_days = (dep_date - book_date).days
+                        except:
+                            pass
+
+                # 空项目处理
+                if not project_code:
+                    project_code = '空项目'
+                    project_name = '未分配项目'
+
+                all_records.append({
+                    'project_code': project_code,
+                    'project_name': project_name,
+                    'person': person,
+                    'department': department,
+                    'type': sheet_name,
+                    'amount': amount,
+                    'date': date_str,
+                    'is_over_standard': bool(is_over_standard),
+                    'over_type': over_type,
+                    'advance_days': advance_days
+                })
+
+        if not all_records:
+            self.logger.warning("没有找到任何差旅记录")
+            return []
+
+        # 转换为 DataFrame
+        df_all = pd.DataFrame(all_records)
+
+        # 按项目分组统计
+        grouped = df_all.groupby(['project_code', 'project_name']).agg({
+            'amount': 'sum',
+            'person': lambda x: list(set(x)),  # 去重的人员列表
+            'department': lambda x: list(set(x)),  # 去重的部门列表
+            'date': ['min', 'max'],  # 最早和最晚日期
+            'type': 'count',  # 总订单数
+            'is_over_standard': 'sum'  # 超标订单数
+        }).reset_index()
+
+        # 展平列名
+        grouped.columns = ['project_code', 'project_name', 'total_cost', 'person_list',
+                          'department_list', 'date_start', 'date_end', 'record_count', 'over_standard_count']
+
+        # 计算各类型成本和订单数
+        for sheet_name in travel_sheets:
+            type_df = df_all[df_all['type'] == sheet_name]
+            type_grouped = type_df.groupby(['project_code', 'project_name']).agg({
+                'amount': 'sum',
+                'type': 'count'
+            }).reset_index()
+            type_grouped.columns = ['project_code', 'project_name', f'{sheet_name}_cost', f'{sheet_name}_count']
+            grouped = grouped.merge(type_grouped, on=['project_code', 'project_name'], how='left')
+
+        # 填充空值
+        for sheet_name in travel_sheets:
+            grouped[f'{sheet_name}_cost'] = grouped[f'{sheet_name}_cost'].fillna(0)
+            grouped[f'{sheet_name}_count'] = grouped[f'{sheet_name}_count'].fillna(0)
+
+        # 按成本降序排序
+        grouped = grouped.sort_values('total_cost', ascending=False).reset_index(drop=True)
+
+        # 构建结果
+        for _, row in grouped.iterrows():
+            person_list = row['person_list'] if isinstance(row['person_list'], list) else []
+            department_list = row['department_list'] if isinstance(row['department_list'], list) else []
+
+            # 格式化日期
+            date_start = row['date_start'] if pd.notna(row['date_start']) else ''
+            date_end = row['date_end'] if pd.notna(row['date_end']) else ''
+
+            results.append({
+                'code': row['project_code'],
+                'name': row['project_name'],
+                'total_cost': float(row['total_cost']),
+                'flight_cost': float(row.get('机票_cost', 0)),
+                'hotel_cost': float(row.get('酒店_cost', 0)),
+                'train_cost': float(row.get('火车票_cost', 0)),
+                'record_count': int(row['record_count']),
+                'flight_count': int(row.get('机票_count', 0)),
+                'hotel_count': int(row.get('酒店_count', 0)),
+                'train_count': int(row.get('火车票_count', 0)),
+                'person_count': len(person_list),
+                'person_list': person_list,
+                'department_list': department_list,
+                'date_range': {
+                    'start': str(date_start),
+                    'end': str(date_end)
+                },
+                'over_standard_count': int(row['over_standard_count'])
+            })
+
+        self.logger.info(f"✅ 共获取 {len(results)} 个项目的详细信息")
+        self.logger.info("=" * 80 + "\n")
+
+        return results
+
+    def get_project_order_records(self, project_code: str) -> List[Dict[str, Any]]:
+        """
+        获取指定项目的所有订单记录
+
+        Args:
+            project_code: 项目代码
+
+        Returns:
+            该项目的所有订单记录列表
+        """
+        travel_sheets = ['机票', '酒店', '火车票']
+        records = []
+
+        # 获取考勤数据用于部门信息
+        attendance_df = self.clean_attendance_data()
+        person_dept_map = {}
+        if not attendance_df.empty and '姓名' in attendance_df.columns and '一级部门' in attendance_df.columns:
+            person_dept_map = attendance_df[['姓名', '一级部门']].drop_duplicates().set_index('姓名')['一级部门'].to_dict()
+
+        for sheet_name in travel_sheets:
+            df = self.clean_travel_data(sheet_name)
+            if df.empty or '项目' not in df.columns:
+                continue
+
+            amount_col = '授信金额' if '授信金额' in df.columns else '金额'
+            date_col = '出发日期' if '出发日期' in df.columns else '入住日期'
+
+            for idx, row in df.iterrows():
+                project_str = row.get('项目', '')
+                extracted_code, extracted_name = self.extract_project_code(project_str)
+
+                # 空项目处理
+                if not extracted_code:
+                    extracted_code = '空项目'
+                    extracted_name = '未分配项目'
+
+                # 匹配项目代码
+                if extracted_code != project_code:
+                    continue
+
+                amount = row.get(amount_col, 0)
+                person = row.get('姓名', '')
+                date_val = row.get(date_col, '')
+                department = person_dept_map.get(person, '未知部门')
+
+                # 处理日期
+                if pd.notna(date_val):
+                    if hasattr(date_val, 'strftime'):
+                        date_str = date_val.strftime('%Y-%m-%d')
+                    else:
+                        date_str = str(date_val)
+                else:
+                    date_str = ''
+
+                # 检查是否超标（需要正确判断字符串"是"或"否"）
+                is_over_standard = False
+                over_type = ''
+                over_standard_val = row.get('是否超标', '')
+                if pd.notna(over_standard_val):
+                    is_over_standard = str(over_standard_val).strip() == '是'
+                    if is_over_standard and '超标类型' in df.columns:
+                        over_type = row.get('超标类型', '')
+
+                # 计算提前预订天数
+                advance_days = None
+                if '预订日期' in df.columns and '出发日期' in df.columns:
+                    book_date = row.get('预订日期')
+                    dep_date = row.get('出发日期')
+                    if pd.notna(book_date) and pd.notna(dep_date):
+                        try:
+                            if hasattr(book_date, 'to_pydatetime'):
+                                book_date = book_date.to_pydatetime()
+                            if hasattr(dep_date, 'to_pydatetime'):
+                                dep_date = dep_date.to_pydatetime()
+                            advance_days = (dep_date - book_date).days
+                        except:
+                            pass
+
+                # 转换类型名称
+                type_mapping = {'机票': 'flight', '酒店': 'hotel', '火车票': 'train'}
+
+                records.append({
+                    'id': f"{sheet_name}_{idx}",
+                    'project_code': extracted_code,
+                    'project_name': extracted_name,
+                    'person': person,
+                    'department': department,
+                    'type': type_mapping.get(sheet_name, 'other'),
+                    'amount': float(amount),
+                    'date': date_str,
+                    'is_over_standard': bool(is_over_standard),
+                    'over_type': over_type,
+                    'advance_days': advance_days
+                })
+
+        # 按日期排序
+        records.sort(key=lambda x: x['date'], reverse=True)
+
+        return records

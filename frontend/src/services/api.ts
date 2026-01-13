@@ -3,11 +3,13 @@
  * 对接后端 FastAPI 接口
  */
 import axios, { AxiosInstance } from 'axios'
-import type { 
-  ApiResponse, 
-  AnalysisResult, 
+import type {
+  ApiResponse,
+  AnalysisResult,
   UploadResponse,
   UploadRecord,
+  ProjectDetail,
+  ProjectOrderRecord,
 } from '@/types'
 
 // API 基础地址
@@ -42,9 +44,9 @@ apiClient.interceptors.response.use(
 export const uploadFile = async (file: File): Promise<ApiResponse<UploadResponse>> => {
   const formData = new FormData()
   formData.append('file', file)
-  
+
   const response = await axios.post<ApiResponse<UploadResponse>>(
-    `${API_BASE_URL}/upload`, 
+    `${API_BASE_URL}/upload`,
     formData,
     {
       headers: {
@@ -54,7 +56,7 @@ export const uploadFile = async (file: File): Promise<ApiResponse<UploadResponse
       timeout: 300000, // 5 分钟
     }
   )
-  
+
   return response.data
 }
 
@@ -146,6 +148,46 @@ export const deleteFile = async (filePath: string): Promise<ApiResponse> => {
  */
 export const clearData = async (filePath: string): Promise<ApiResponse> => {
   return apiClient.delete('/data', { params: { file_path: filePath } })
+}
+
+/**
+ * 获取所有项目的详细信息
+ * @param filePath 文件路径
+ * @returns 项目详情列表
+ */
+export const getAllProjects = async (filePath: string): Promise<ApiResponse<{
+  projects: ProjectDetail[]
+  total_count: number
+}>> => {
+  return apiClient.get('/projects', {
+    params: { file_path: filePath }
+  }) as Promise<ApiResponse<{
+    projects: ProjectDetail[]
+    total_count: number
+  }>>
+}
+
+/**
+ * 获取指定项目的所有订单记录
+ * @param filePath 文件路径
+ * @param projectCode 项目代码
+ * @returns 项目订单记录列表
+ */
+export const getProjectOrders = async (
+  filePath: string,
+  projectCode: string
+): Promise<ApiResponse<{
+  project_code: string
+  orders: ProjectOrderRecord[]
+  total_count: number
+}>> => {
+  return apiClient.get(`/projects/${encodeURIComponent(projectCode)}/orders`, {
+    params: { file_path: filePath }
+  }) as Promise<ApiResponse<{
+    project_code: string
+    orders: ProjectOrderRecord[]
+    total_count: number
+  }>>
 }
 
 // 导出 axios 实例供特殊情况使用
