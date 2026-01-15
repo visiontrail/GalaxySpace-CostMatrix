@@ -116,6 +116,13 @@ export interface UploadRecord {
 
 export type UploadResponse = UploadRecord
 
+export interface MonthContextValue {
+  availableMonths: string[]
+  selectedMonth: string | null
+  selectMonth: (month: string | null) => void
+  refreshMonths: () => Promise<void>
+}
+
 // ============ 部门层级结构 ============
 export interface DepartmentHierarchy {
   level1: string[]                    // 一级部门列表

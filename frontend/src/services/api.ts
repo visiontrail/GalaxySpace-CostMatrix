@@ -8,11 +8,6 @@ import type {
   AnalysisResult,
   UploadResponse,
   UploadRecord,
-  ProjectDetail,
-  ProjectOrderRecord,
-  DepartmentHierarchy,
-  DepartmentListItem,
-  DepartmentDetailMetrics,
 } from '@/types'
 
 // API 基础地址
@@ -55,7 +50,6 @@ export const uploadFile = async (file: File): Promise<ApiResponse<UploadResponse
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-      // 上传文件可能较大，延长超时以避免 60s 限制
       timeout: 300000, // 5 分钟
     }
   )
@@ -64,15 +58,12 @@ export const uploadFile = async (file: File): Promise<ApiResponse<UploadResponse
 }
 
 /**
- * 分析 Excel 文件
- * POST /api/analyze
- * @param filePath 文件路径
- * @returns 分析结果
+ * 获取缓存的分析结果
+ * @param fileName 文件名 (不含路径和扩展名)
+ * @returns 缓存的分析结果
  */
-export const analyzeExcel = async (filePath: string): Promise<ApiResponse<AnalysisResult>> => {
-  return apiClient.post('/analyze', null, {
-    params: { file_path: filePath },
-  }) as Promise<ApiResponse<AnalysisResult>>
+export const getCache = async (fileName: string): Promise<ApiResponse<AnalysisResult>> => {
+  return apiClient.get(`/cache/${encodeURIComponent(fileName)}`) as Promise<ApiResponse<AnalysisResult>>
 }
 
 /**
@@ -80,6 +71,49 @@ export const analyzeExcel = async (filePath: string): Promise<ApiResponse<Analys
  */
 export const listUploads = async (): Promise<ApiResponse<UploadRecord[]>> => {
   return apiClient.get('/uploads') as Promise<ApiResponse<UploadRecord[]>>
+}
+
+/**
+ * 获取所有可用的月份列表（跨所有文件）
+ */
+export const getAvailableMonths = async (): Promise<ApiResponse<string[]>> => {
+  return apiClient.get('/months') as Promise<ApiResponse<string[]>>
+}
+
+/**
+ * 分析 Excel 文件
+ * POST /api/analyze
+ * @param filePath 文件路径
+ * @param options 可选参数
+ * @param options.months 月份列表 (例如: ["2025-01", "2025-02"])
+ * @param options.quarter 季度 (1, 2, 3, 4)
+ * @param options.year 年份 (例如: 2025)
+ * @returns 分析结果
+ */
+export const analyzeExcel = async (
+  filePath: string | undefined,
+  options?: {
+    months?: string[]
+    quarter?: number
+    year?: number
+  }
+): Promise<ApiResponse<AnalysisResult>> => {
+  const params: Record<string, string | number> = {}
+
+  if (filePath) {
+    params.file_path = filePath
+  }
+
+  if (options?.months && options.months.length > 0) {
+    params.months = options.months.join(',')
+  } else if (options?.quarter && options?.year) {
+    params.quarter = options.quarter
+    params.year = options.year
+  } else if (options?.year) {
+    params.year = options.year
+  }
+
+  return apiClient.post('/analyze', null, { params }) as Promise<ApiResponse<AnalysisResult>>
 }
 
 /**
@@ -94,7 +128,7 @@ export const exportResults = async (filePath: string): Promise<Blob> => {
     {
       params: { file_path: filePath },
       responseType: 'blob',
-      timeout: 120000, // 导出超时 2 分钟
+      timeout: 120000,
     }
   )
 
@@ -119,7 +153,7 @@ export const exportPpt = async (
     },
     {
       responseType: 'blob',
-      timeout: 180000, // 导出超时 3 分钟
+      timeout: 180000,
       headers: {
         'Content-Type': 'application/json'
       }
@@ -159,13 +193,13 @@ export const clearData = async (filePath: string): Promise<ApiResponse> => {
  * @returns 项目详情列表
  */
 export const getAllProjects = async (filePath: string): Promise<ApiResponse<{
-  projects: ProjectDetail[]
+  projects: any[]
   total_count: number
 }>> => {
   return apiClient.get('/projects', {
     params: { file_path: filePath }
   }) as Promise<ApiResponse<{
-    projects: ProjectDetail[]
+    projects: any[]
     total_count: number
   }>>
 }
@@ -181,14 +215,14 @@ export const getProjectOrders = async (
   projectCode: string
 ): Promise<ApiResponse<{
   project_code: string
-  orders: ProjectOrderRecord[]
+  orders: any[]
   total_count: number
 }>> => {
   return apiClient.get(`/projects/${encodeURIComponent(projectCode)}/orders`, {
     params: { file_path: filePath }
   }) as Promise<ApiResponse<{
     project_code: string
-    orders: ProjectOrderRecord[]
+  orders: any[]
     total_count: number
   }>>
 }
@@ -200,10 +234,18 @@ export const getProjectOrders = async (
  */
 export const getDepartmentHierarchy = async (
   filePath: string
-): Promise<ApiResponse<DepartmentHierarchy>> => {
+): Promise<ApiResponse<{
+  level1: string[]
+  level2: Record<string, string[]>
+  level3: Record<string, string[]>
+}>> => {
   return apiClient.get('/departments/hierarchy', {
     params: { file_path: filePath }
-  }) as Promise<ApiResponse<DepartmentHierarchy>>
+  }) as Promise<ApiResponse<{
+    level1: string[]
+    level2: Record<string, string[]>
+    level3: Record<string, string[]>
+  }>>
 }
 
 /**
@@ -220,7 +262,7 @@ export const getDepartmentList = async (
 ): Promise<ApiResponse<{
   level: number
   parent?: string
-  departments: DepartmentListItem[]
+  departments: any[]
   total_count: number
 }>> => {
   return apiClient.get('/departments/list', {
@@ -228,7 +270,7 @@ export const getDepartmentList = async (
   }) as Promise<ApiResponse<{
     level: number
     parent?: string
-    departments: DepartmentListItem[]
+    departments: any[]
     total_count: number
   }>>
 }
@@ -244,10 +286,10 @@ export const getDepartmentDetails = async (
   filePath: string,
   departmentName: string,
   level: number = 3
-): Promise<ApiResponse<DepartmentDetailMetrics>> => {
+): Promise<ApiResponse<any>> => {
   return apiClient.get('/departments/details', {
     params: { file_path: filePath, department_name: departmentName, level }
-  }) as Promise<ApiResponse<DepartmentDetailMetrics>>
+  }) as Promise<ApiResponse<any>>
 }
 
 /**
@@ -286,21 +328,21 @@ export const getLevel1DepartmentStatistics = async (
     total_travel_cost: number
     attendance_days_distribution: Record<string, number>
     travel_ranking: Array<{ name: string; value: number; detail?: string }>
-    avg_hours_ranking: Array<{ name: string; value: number; detail?: string }>
-    level2_department_stats: Array<{
-      name: string
-      person_count: number
-      avg_work_hours: number
-      workday_attendance_days: number
-      weekend_work_days: number
-      weekend_attendance_count: number
-      travel_days: number
-      leave_days: number
-      anomaly_days: number
-      late_after_1930_count: number
-      total_cost: number
-    }>
-  }>>
+  avg_hours_ranking: Array<{ name: string; value: number; detail?: string }>
+  level2_department_stats: Array<{
+    name: string
+    person_count: number
+    avg_work_hours: number
+    workday_attendance_days: number
+    weekend_work_days: number
+    weekend_attendance_count: number
+    travel_days: number
+    leave_days: number
+    anomaly_days: number
+    late_after_1930_count: number
+    total_cost: number
+  }>
+}>>
 }
 
 // 导出 axios 实例供特殊情况使用

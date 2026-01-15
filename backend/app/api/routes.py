@@ -1,7 +1,7 @@
 """
 API 路由定义
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, Optional
 import json
@@ -13,9 +13,12 @@ from pathlib import Path
 
 from app.services.excel_processor import ExcelProcessor
 from app.services.ppt_export_service import PPTExporter
+from app.services.database_parser import DatabaseParser
 from app.models.schemas import AnalysisResult, DashboardData
 from app.config import settings
 from app.utils.logger import get_logger
+from app.db.database import get_db
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 logger = get_logger("api.routes")
@@ -115,50 +118,84 @@ async def list_uploads():
     return {"success": True, "data": result}
 
 
+@router.get("/months")
+async def get_available_months():
+    """
+    获取所有上传文件中的可用月份列表
+    """
+    try:
+        records = _load_upload_records()
+        all_months = set()
+
+        for record in records:
+            file_path = record.get("file_path")
+            if file_path and os.path.exists(file_path):
+                try:
+                    processor = ExcelProcessor(file_path)
+                    months = processor.get_available_months()
+                    all_months.update(months)
+                except Exception as e:
+                    logger.warning(f"获取文件 {file_path} 的月份失败: {e}")
+
+        return {
+            "success": True,
+            "data": sorted(list(all_months))
+        }
+    except Exception as e:
+        logger.exception(f"获取月份列表失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取月份列表失败: {str(e)}")
+
+
 @router.post("/upload", response_model=AnalysisResult)
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    上传 Excel 文件
+    上传 Excel 文件并解析到数据库
     """
-    # 验证文件类型
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="仅支持 .xlsx 或 .xls 文件")
-    
-    # 生成唯一文件名
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_filename = f"{timestamp}_{file.filename}"
     file_path = os.path.join(settings.upload_dir, safe_filename)
-    
+
     try:
-        # 保存文件
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
-        # 验证文件可读性，但仅读取 Sheet 名称以提升速度
+
         processor = ExcelProcessor(file_path)
         sheet_names = processor.get_sheet_names()
         file_size = os.path.getsize(file_path)
-        record = {
+
+        parser = DatabaseParser(file_path)
+        parse_stats = parser.parse_and_insert(db)
+
+        _upsert_upload_record({
             "file_path": file_path,
             "file_name": file.filename,
             "file_size": file_size,
             "sheets": sheet_names,
             "upload_time": timestamp,
-            "parsed": False,
-            "last_analyzed_at": None,
-        }
-        _upsert_upload_record(record)
+            "parsed": True,
+            "last_analyzed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
 
         return AnalysisResult(
             success=True,
-            message="文件上传成功",
-            data=record,
+            message="文件上传并解析成功",
+            data={
+                "file_path": file_path,
+                "file_name": file.filename,
+                "upload_id": parse_stats.get("upload_id"),
+                "parse_status": "parsed",
+                "stats": parse_stats
+            },
         )
-    
+
     except Exception as e:
-        # 清理失败的文件
+        db.rollback()
         if os.path.exists(file_path):
             os.remove(file_path)
+        logger.error(f"文件上传失败: {e}")
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
 
 

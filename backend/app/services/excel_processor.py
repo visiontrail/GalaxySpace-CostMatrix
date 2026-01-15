@@ -132,7 +132,7 @@ class ExcelProcessor:
             df[amount_col] = df[amount_col].fillna(0)
         
         # 处理日期字段
-        date_cols = ['出发日期', '入住日期', '订单日期']
+        date_cols = ['出发日期', '起飞日期', '入住日期', '订单日期']
         for col in date_cols:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
@@ -695,34 +695,7 @@ class ExcelProcessor:
                     'person_count': int(person_count)
                 }
         
-        # 尝试从差旅汇总 Sheet 获取
-        summary_df = self.get_sheet('差旅汇总')
-        if summary_df is not None and not summary_df.empty:
-            if '一级部门' in summary_df.columns and '成本' in summary_df.columns:
-                grouped = summary_df.groupby('一级部门').agg({
-                    '成本': 'sum'
-                }).reset_index()
-                
-                # 按成本降序排序
-                grouped = grouped.sort_values('成本', ascending=False).reset_index(drop=True)
-                
-                for _, row in grouped.iterrows():
-                    dept = row['一级部门']
-                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
-                    results.append({
-                        'department': dept,
-                        'total_cost': float(row['成本']),
-                        'flight_cost': 0,
-                        'hotel_cost': 0,
-                        'train_cost': 0,
-                        'avg_hours': stats['avg_hours'],
-                        'person_count': stats['person_count']
-                    })
-                
-                # 应用 top_n 限制并添加"其他"
-                return self._apply_top_n_with_others(results, top_n, 'department')
-        
-        # 如果没有汇总表，从明细计算
+        # 始终从明细表计算部门成本（不使用"差旅汇总" sheet）
         travel_data = {
             '机票': 'flight_cost',
             '酒店': 'hotel_cost',
@@ -1657,3 +1630,48 @@ class ExcelProcessor:
             'avg_hours_ranking': avg_hours_ranking,
             'level2_department_stats': level2_department_stats
         }
+
+    def get_available_months(self) -> List[str]:
+        """获取所有可用的月份列表（从差旅数据中提取，格式：YYYY-M，按时间升序排列）"""
+        # Ensure data is loaded
+        if not self.sheets_data:
+            self.load_all_sheets()
+
+        months_set = set()
+
+        flight_df = self.clean_travel_data('机票')
+        if not flight_df.empty and '起飞日期' in flight_df.columns:
+            months = flight_df['起飞日期'].dt.strftime('%Y-%m').dropna().unique()
+            months_set.update(months)
+
+        hotel_df = self.clean_travel_data('酒店')
+        if not hotel_df.empty and '入住日期' in hotel_df.columns:
+            months = hotel_df['入住日期'].dt.strftime('%Y-%m').dropna().unique()
+            months_set.update(months)
+
+        train_df = self.clean_travel_data('火车票')
+        if not train_df.empty and '出发日期' in train_df.columns:
+            months = train_df['出发日期'].dt.strftime('%Y-%m').dropna().unique()
+            months_set.update(months)
+
+        return sorted(list(months_set))
+
+    def _save_cache(self, cache_path: str, data: Dict[str, Any]):
+        """Save analysis results to JSON cache file"""
+        import json
+        from pathlib import Path
+
+        cache_file = Path(cache_path)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+
+        temp_path = cache_file.with_suffix('.tmp')
+        try:
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            temp_path.replace(cache_file)
+            self.logger.info(f"Cache saved to: {cache_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to save cache: {e}")
+            if temp_path.exists():
+                temp_path.unlink()
+            raise

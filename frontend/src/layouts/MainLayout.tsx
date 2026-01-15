@@ -1,26 +1,16 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import { Layout, Menu, Typography, Tag, Button, Space, Spin, message, Empty } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Layout, Menu, Typography, Button, Space, Empty } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
-import type { UploadRecord } from '@/types'
-import { listUploads } from '@/services/api'
+import type { MonthContextValue } from '@/types'
+import { MonthProvider, useMonthContext } from '@/contexts/MonthContext'
 
 const { Header, Content, Footer, Sider } = Layout
 const { Title } = Typography
 
-export interface UploadContextValue {
-  uploads: UploadRecord[]
-  selectedUpload: UploadRecord | null
-  selectUpload: (upload: UploadRecord | null) => void
-  refreshUploads: () => Promise<void>
-}
-
 const MainLayout = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const [uploads, setUploads] = useState<UploadRecord[]>([])
-  const [selectedUpload, setSelectedUpload] = useState<UploadRecord | null>(null)
-  const [loadingUploads, setLoadingUploads] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const menuItems = [
@@ -44,57 +34,63 @@ const MainLayout = () => {
     setSidebarCollapsed((prev) => !prev)
   }
 
-  const refreshUploads = useCallback(async () => {
-    setLoadingUploads(true)
-    try {
-      const res = await listUploads()
-      if (res.success && res.data) {
-        const sorted = [...res.data].sort(
-          (a, b) => (b.upload_time || '').localeCompare(a.upload_time || '')
-        )
-        setUploads(sorted)
-        setSelectedUpload((current) => {
-          const matched = sorted.find((item) => item.file_path === current?.file_path)
-          const nextSelection = matched || sorted.find((item) => item.parsed) || sorted[0] || null
-          return nextSelection || null
-        })
-      } else {
-        message.error(res.message || '获取上传记录失败')
-      }
-    } catch (error: any) {
-      message.error(error.message || '获取上传记录失败')
-    } finally {
-      setLoadingUploads(false)
-    }
-  }, [])
+  return (
+    <MonthProvider>
+      <MainLayoutContent
+        sidebarCollapsed={sidebarCollapsed}
+        toggleSidebar={toggleSidebar}
+        menuItems={menuItems}
+        handleMenuClick={handleMenuClick}
+        navigate={navigate}
+        location={location}
+      />
+    </MonthProvider>
+  )
+}
+
+interface MainLayoutContentProps {
+  sidebarCollapsed: boolean
+  toggleSidebar: () => void
+  menuItems: any[]
+  handleMenuClick: (info: { key: string }) => void
+  navigate: any
+  location: any
+}
+
+const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
+  sidebarCollapsed,
+  toggleSidebar,
+  menuItems,
+  handleMenuClick,
+  location,
+}) => {
+  const { availableMonths, selectedMonth, selectMonth, refreshMonths } = useMonthContext()
 
   useEffect(() => {
-    refreshUploads()
-  }, [refreshUploads])
+    refreshMonths()
+  }, [refreshMonths])
 
-  const contextValue: UploadContextValue = useMemo(() => ({
-    uploads,
-    selectedUpload,
-    selectUpload: setSelectedUpload,
-    refreshUploads,
-  }), [uploads, selectedUpload, refreshUploads])
+  const contextValue: MonthContextValue = useMemo(() => ({
+    availableMonths,
+    selectedMonth,
+    selectMonth,
+    refreshMonths,
+  }), [availableMonths, selectedMonth, selectMonth, refreshMonths])
 
-  const uploadItems = uploads.map((item) => ({
-    key: item.file_path,
+  const formatMonth = (month: string) => {
+    const [year, monthNum] = month.split('-')
+    return `${year}年${monthNum}月`
+  }
+
+  const monthItems = availableMonths.map((month) => ({
+    key: month,
     label: (
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <span style={{ fontWeight: 600, color: '#1f1f1f' }}>{item.file_name}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Tag color={item.parsed ? 'green' : 'orange'} style={{ marginInlineEnd: 0 }}>
-            {item.parsed ? '已解析' : '未解析'}
-          </Tag>
-          <span style={{ color: '#8c8c8c', fontSize: 12 }}>
-            {item.upload_time || '-'}
-          </span>
-        </div>
+        <span style={{ fontWeight: 600, color: '#1f1f1f' }}>
+          {formatMonth(month)}
+        </span>
       </div>
     ),
-    disabled: item.exists === false,
   }))
 
   return (
@@ -103,7 +99,9 @@ const MainLayout = () => {
         theme="light"
         collapsible
         collapsed={sidebarCollapsed}
-        onCollapse={(collapsed) => setSidebarCollapsed(collapsed)}
+        onCollapse={() => {
+          toggleSidebar()
+        }}
         collapsedWidth={0}
         trigger={null}
         width={320}
@@ -122,38 +120,33 @@ const MainLayout = () => {
               style={{ color: '#1f1f1f' }}
               aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
             />
-            <Title level={4} style={{ margin: 0 }}>数据文件</Title>
+            <Title level={4} style={{ margin: 0 }}>统计月份</Title>
           </Space>
-          <Button size="small" onClick={refreshUploads} loading={loadingUploads}>
+          <Button size="small" onClick={refreshMonths}>
             刷新
           </Button>
         </Space>
         <div style={{ marginTop: 12 }}>
-          {loadingUploads ? (
-            <div style={{ textAlign: 'center', padding: '24px 0' }}>
-              <Spin />
-            </div>
-          ) : uploads.length ? (
+          {availableMonths.length === 0 ? (
+            <Empty description="暂无数据" style={{ paddingTop: 20 }} />
+          ) : (
             <Menu
-              className="upload-menu"
+              className="month-menu"
               mode="inline"
-              selectedKeys={selectedUpload ? [selectedUpload.file_path] : []}
+              selectedKeys={selectedMonth ? [selectedMonth] : []}
               onClick={(info) => {
-                const target = uploads.find((item) => item.file_path === info.key)
-                setSelectedUpload(target || null)
+                selectMonth(info.key)
               }}
-              items={uploadItems}
+              items={monthItems}
               style={{ borderInlineEnd: 'none', height: 'calc(100vh - 120px)', overflowY: 'auto' }}
             />
-          ) : (
-            <Empty description="暂无文件" style={{ paddingTop: 20 }} />
           )}
         </div>
       </Sider>
       <Layout>
-        <Header style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
+        <Header style={{
+          display: 'flex',
+          alignItems: 'center',
           background: '#001529',
           padding: '0 24px'
         }}>

@@ -16,8 +16,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.routes import router
+from app.db.database import init_db
 
-# 创建 FastAPI 应用
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
@@ -26,7 +26,6 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# 配置 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins or ["*"],
@@ -35,8 +34,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册路由
 app.include_router(router, prefix="/api", tags=["analysis"])
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup."""
+    init_db()
+
+    cache_dir = Path(settings.upload_dir) / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/")
