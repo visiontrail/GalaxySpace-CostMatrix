@@ -356,7 +356,10 @@ def get_dashboard_summary(
 
     avg_hours_result = db.query(
         func.avg(AttendanceRecord.work_hours).label('avg_hours')
-    ).filter(and_(*attendance_where)).first()
+    ).filter(
+        and_(*attendance_where),
+        AttendanceRecord.work_hours != 0
+    ).first()
 
     return {
         'total_cost': float(total_cost_result.total_cost or 0),
@@ -637,7 +640,10 @@ def get_department_stats(
         Employee, AttendanceRecord.employee_id == Employee.id
     ).join(
         Department, Employee.department_id == Department.id
-    ).filter(and_(*attendance_where)).group_by(
+    ).filter(
+        and_(*attendance_where),
+        AttendanceRecord.work_hours != 0
+    ).group_by(
         Department.name
     ).all()
 
@@ -771,7 +777,8 @@ def get_all_departments(db: Session, file_path: str) -> List[dict]:
             Employee, Employee.department_id == dept.id
         ).filter(
             AttendanceRecord.upload_id == upload.id,
-            AttendanceRecord.work_hours.isnot(None)
+            AttendanceRecord.work_hours.isnot(None),
+            AttendanceRecord.work_hours != 0
         ).scalar() or 0
 
         result.append({
@@ -871,7 +878,8 @@ def get_department_list(
             dept_field == dept.id,
             AttendanceRecord.upload_id == upload.id,
             AttendanceRecord.status == '上班',
-            AttendanceRecord.work_hours.isnot(None)
+            AttendanceRecord.work_hours.isnot(None),
+            AttendanceRecord.work_hours != 0
         ).scalar() or 0
 
         # Count employees at this specific department level
@@ -953,7 +961,8 @@ def get_department_detail_metrics(
     ).join(Employee, AttendanceRecord.employee_id == Employee.id).filter(
         dept_field == dept.id,
         AttendanceRecord.upload_id == upload.id,
-        AttendanceRecord.status == '上班'
+        AttendanceRecord.status == '上班',
+        AttendanceRecord.work_hours != 0
     ).first()
 
     workday_attendance_days = workday_stats.workday_attendance_days or 0
@@ -1040,7 +1049,7 @@ def get_department_detail_metrics(
         FROM fact_attendance a
         JOIN dim_employee e ON a.employee_id = e.id
         WHERE {where_clause} AND a.upload_id = :upload_id
-              AND a.status = '上班' AND a.work_hours IS NOT NULL
+              AND a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0
         GROUP BY e.name
     ),
     latest_checkout AS (
@@ -1154,7 +1163,7 @@ def get_level1_department_statistics(
     FROM fact_attendance a
     JOIN dim_employee e ON a.employee_id = e.id
     WHERE e.level2_department_id IN :dept_ids AND a.upload_id = :upload_id
-          AND a.status = '上班' AND a.work_hours IS NOT NULL
+          AND a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0
     GROUP BY e.name
     ORDER BY avg_hours DESC
     LIMIT 10
@@ -1170,7 +1179,7 @@ def get_level1_department_statistics(
     SELECT
         d.name as name,
         COUNT(DISTINCT e.id) as person_count,
-        AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL THEN a.work_hours END) as avg_work_hours,
+        AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as avg_work_hours,
         COUNT(CASE WHEN a.status = '上班' THEN 1 END) as workday_attendance_days,
         COUNT(CASE WHEN a.status = '公休日上班' THEN 1 END) as weekend_work_days,
         COUNT(CASE WHEN a.status = '出差' THEN 1 END) as travel_days,
@@ -1271,7 +1280,8 @@ def get_dashboard_summary_by_month(db: Session, month: str) -> dict:
     ).filter(
         AttendanceRecord.upload_id.in_(upload_ids),
         AttendanceRecord.date >= month_start,
-        AttendanceRecord.date <= month_end
+        AttendanceRecord.date <= month_end,
+        AttendanceRecord.work_hours != 0
     ).first()
 
     return {
@@ -1327,6 +1337,7 @@ def get_department_stats_by_month(db: Session, month: str, top_n: int = 15) -> L
             AttendanceRecord.upload_id.in_(upload_ids),
             AttendanceRecord.date >= month_start,
             AttendanceRecord.date <= month_end,
+            AttendanceRecord.work_hours != 0,
             Employee.department_id == (dept_id.id if dept_id else None)
         )
 
@@ -1518,7 +1529,7 @@ def get_dashboard_data(
         'project_top10': [
             {
                 'code': item['code'],
-                'name': item['code'],
+                'name': item['name'],
                 'cost': item['cost']
             }
             for item in project_stats
@@ -1592,7 +1603,10 @@ def get_department_list_from_db(
         Employee, dept_join_map[level]
     ).join(
         AttendanceRecord, Employee.id == AttendanceRecord.employee_id
-    ).filter(*where_clauses)
+    ).filter(
+        *where_clauses,
+        AttendanceRecord.work_hours != 0
+    )
 
     # Add parent filter if needed
     if parent_filter is not None:
@@ -1698,7 +1712,10 @@ def get_department_details_from_db(
         Employee, AttendanceRecord.employee_id == Employee.id
     ).join(
         Department, dept_join_map[level]
-    ).filter(and_(*where_clauses)).first()
+    ).filter(
+        and_(*where_clauses),
+        AttendanceRecord.work_hours != 0
+    ).first()
 
     if not result:
         return None
@@ -1873,7 +1890,8 @@ def get_department_details_from_db(
         Department.name == department_name,
         AttendanceRecord.status == '上班',
         AttendanceRecord.upload_id.in_(upload_ids),
-        AttendanceRecord.work_hours.isnot(None)
+        AttendanceRecord.work_hours.isnot(None),
+        AttendanceRecord.work_hours != 0
     ).group_by(Employee.name).order_by(
         func.avg(AttendanceRecord.work_hours).desc()
     ).limit(10).all()
@@ -2104,7 +2122,7 @@ def get_level1_department_statistics_from_db(
     FROM fact_attendance a
     JOIN dim_employee e ON a.employee_id = e.id
     WHERE e.level2_department_id IN :dept_ids AND a.upload_id IN :upload_ids
-      AND a.status = '上班' AND a.work_hours IS NOT NULL
+      AND a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0
     GROUP BY e.name
     ORDER BY avg_hours DESC
     LIMIT 10
@@ -2120,7 +2138,7 @@ def get_level1_department_statistics_from_db(
     SELECT
         d.name as name,
         COUNT(DISTINCT e.id) as person_count,
-        AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL THEN a.work_hours END) as avg_work_hours,
+        AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as avg_work_hours,
         COUNT(DISTINCT CASE WHEN a.status = '上班' THEN DATE(a.date) END) as workday_attendance_days,
         COUNT(DISTINCT CASE WHEN a.status = '公休日上班' THEN DATE(a.date) END) as weekend_work_days,
         COUNT(CASE WHEN a.status IN ('上班', '出差') AND strftime('%w', a.date) IN ('0', '6') THEN 1 END) as weekend_attendance_count,
@@ -2128,14 +2146,20 @@ def get_level1_department_statistics_from_db(
         COUNT(DISTINCT CASE WHEN a.status LIKE '%请假%' THEN DATE(a.date) END) as leave_days,
         COUNT(DISTINCT CASE WHEN an.anomaly_type = 'A' THEN DATE(an.date) END) as anomaly_days,
         COUNT(DISTINCT CASE WHEN a.is_late_after_1930 = 1 THEN e.id END) as late_after_1930_count,
-        COALESCE(SUM(t.amount), 0) as total_cost
+        COALESCE(tc.total_cost, 0) as total_cost
     FROM dim_department d
     JOIN dim_employee e ON e.level2_department_id = d.id
     LEFT JOIN fact_attendance a ON a.employee_id = e.id AND a.upload_id IN :upload_ids
     LEFT JOIN anomalies an ON an.employee_id = e.id AND an.upload_id IN :upload_ids
-    LEFT JOIN fact_travel_expense t ON t.employee_id = e.id AND t.upload_id IN :upload_ids
+    LEFT JOIN (
+        SELECT e2.level2_department_id, COALESCE(SUM(t2.amount), 0) as total_cost
+        FROM dim_employee e2
+        JOIN fact_travel_expense t2 ON t2.employee_id = e2.id
+        WHERE t2.upload_id IN :upload_ids
+        GROUP BY e2.level2_department_id
+    ) tc ON d.id = tc.level2_department_id
     WHERE d.id IN :dept_ids
-    GROUP BY d.id
+    GROUP BY d.id, tc.total_cost
     ORDER BY total_cost DESC
     """).bindparams(bindparam('dept_ids', expanding=True), bindparam('upload_ids', expanding=True))
 

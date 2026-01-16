@@ -686,7 +686,9 @@ class ExcelProcessor:
                 dept_data = attendance_df[attendance_df['一级部门'] == dept]
                 avg_hours = 0
                 if '工时' in dept_data.columns:
-                    avg_hours = dept_data['工时'].mean()
+                    valid_hours = dept_data[dept_data['工时'] != 0]['工时'].dropna()
+                    if not valid_hours.empty:
+                        avg_hours = float(valid_hours.mean())
                     if pd.isna(avg_hours):
                         avg_hours = 0
                 person_count = dept_data['姓名'].nunique() if '姓名' in dept_data.columns else 0
@@ -810,7 +812,9 @@ class ExcelProcessor:
         
         avg_work_hours = 0
         if '工时' in df.columns:
-            avg_work_hours = float(df['工时'].mean())
+            valid_hours = df[df['工时'] != 0]['工时'].dropna()
+            if not valid_hours.empty:
+                avg_work_hours = float(valid_hours.mean())
         
         return {
             'total_records': total_records,
@@ -1244,7 +1248,7 @@ class ExcelProcessor:
             # 计算平均工时
             avg_hours = 0
             if '工时' in dept_data.columns:
-                valid_hours = dept_data['工时'].dropna()
+                valid_hours = dept_data[dept_data['工时'] != 0]['工时'].dropna()
                 if not valid_hours.empty:
                     avg_hours = float(valid_hours.mean())
 
@@ -1388,7 +1392,7 @@ class ExcelProcessor:
         # 4. 工作日平均工时
         avg_work_hours = 0
         if '工时' in dept_df.columns:
-            valid_hours = dept_df[dept_df['当日状态判断'] == '上班']['工时'].dropna()
+            valid_hours = dept_df[(dept_df['当日状态判断'] == '上班') & (dept_df['工时'] != 0)]['工时'].dropna()
             if not valid_hours.empty:
                 avg_work_hours = float(valid_hours.mean())
 
@@ -1456,8 +1460,8 @@ class ExcelProcessor:
         # 13. 最长工时排行榜（按平均工时排名）
         longest_hours_ranking = []
         if '工时' in dept_df.columns and '姓名' in dept_df.columns:
-            # 先按人员分组计算平均工时
-            person_avg_hours = dept_df[dept_df['工时'].notna()].groupby('姓名')['工时'].mean()
+            # 先按人员分组计算平均工时，排除工时为0的记录
+            person_avg_hours = dept_df[dept_df['工时'].notna() & (dept_df['工时'] != 0)].groupby('姓名')['工时'].mean()
             # 按平均工时降序排列
             person_avg_hours = person_avg_hours.sort_values(ascending=False)
             # 取前10名
@@ -1537,7 +1541,7 @@ class ExcelProcessor:
         # 4. 平均工时排行榜（按人，在整个一级部门范围内）
         avg_hours_ranking = []
         if '工时' in level1_df.columns and '姓名' in level1_df.columns:
-            person_avg_hours = level1_df[level1_df['工时'].notna()].groupby('姓名')['工时'].mean()
+            person_avg_hours = level1_df[level1_df['工时'].notna() & (level1_df['工时'] != 0)].groupby('姓名')['工时'].mean()
             person_avg_hours = person_avg_hours.sort_values(ascending=False)
             for name, avg_hours in person_avg_hours.head(10).items():
                 avg_hours_ranking.append({
@@ -1560,7 +1564,7 @@ class ExcelProcessor:
                 # 计算平均工时
                 avg_hours = 0
                 if '工时' in l2_df.columns:
-                    valid_hours = l2_df[l2_df['当日状态判断'] == '上班']['工时'].dropna()
+                    valid_hours = l2_df[(l2_df['当日状态判断'] == '上班') & (l2_df['工时'] != 0)]['工时'].dropna()
                     if not valid_hours.empty:
                         avg_hours = float(valid_hours.mean())
 
