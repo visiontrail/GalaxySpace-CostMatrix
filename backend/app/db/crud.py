@@ -1433,7 +1433,10 @@ def get_anomalies_by_month(db: Session, month: str, limit: int = 50) -> List[dic
     ).filter(
         Anomaly.upload_id.in_(upload_ids),
         Anomaly.date >= month_start,
-        Anomaly.date <= month_end
+        Anomaly.date <= month_end,
+        # 只显示真正的异常：考勤状态精确为"上班"的记录
+        # 排除"公休日上班"等，因为那些不是真正的异常
+        Anomaly.attendance_status == '上班'
     ).order_by(
         Anomaly.date.desc()
     ).limit(limit).all()
@@ -1444,7 +1447,8 @@ def get_anomalies_by_month(db: Session, month: str, limit: int = 50) -> List[dic
             'name': row.name,
             'dept': row.dept,
             'type': row.type,
-            'detail': f"{row.status} - {row.detail or ''}"
+            'status': row.status,
+            'detail': row.detail or ''
         }
         for row in results
     ]

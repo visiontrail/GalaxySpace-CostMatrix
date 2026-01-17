@@ -457,9 +457,14 @@ class ExcelProcessor:
     def cross_check_attendance_travel(self) -> List[Dict[str, Any]]:
         """
         交叉验证：考勤数据 vs 差旅数据
+
+        异常定义：考勤状态精确为"上班"（在办公室工作），但同一天有差旅消费（出差在外）
+        - "上班" + 有差旅消费 = 异常（时间和地点冲突）
+        - "公休日上班" + 有差旅消费 = 正常（周末加班出差）
+        - "出差" + 有差旅消费 = 正常（出差状态）
         """
         anomalies = []
-        
+
         # 获取考勤数据
         attendance_df = self.clean_attendance_data()
         if attendance_df.empty or '当日状态判断' not in attendance_df.columns:
@@ -479,9 +484,10 @@ class ExcelProcessor:
         else:
             attendance_df['一级部门'] = '未知部门'
 
-        # 只关注考勤显示上班的记录，缩小计算范围
+        # 只关注考勤状态精确为"上班"的记录（排除"公休日上班"、"出差"等）
+        # 真正的异常是：在办公室上班，但同一天有差旅消费
         work_attendance = attendance_df[
-            attendance_df['当日状态判断'].str.contains('上班', na=False)
+            attendance_df['当日状态判断'] == '上班'
         ]
         if work_attendance.empty:
             return anomalies
@@ -498,7 +504,7 @@ class ExcelProcessor:
             .rename(columns={'消费日期': '日期'})
         )
 
-        # 基于姓名+日期一次性关联，避免双重 for 循环
+        # 基于姓名+日期一次性关联，找出上班但有差旅消费的记录
         merged = work_attendance.merge(
             travel_grouped,
             on=['姓名', '日期'],
@@ -517,10 +523,10 @@ class ExcelProcessor:
                 'anomaly_type': 'A',
                 'attendance_status': row.get('当日状态判断', ''),
                 'travel_records': travel_list,
-                'description': f'{name} 在 {date_str} 考勤显示上班，但有 {",".join(travel_list)} 消费记录'
+                'description': f'{name} 在 {date_str} 考勤显示上班（在办公室），但有 {",".join(travel_list)} 消费记录（出差在外），存在时间和地点冲突'
             })
 
-        self.logger.info(f"交叉验证完成，发现 {len(anomalies)} 条异常记录")
+        self.logger.info(f"交叉验证完成，发现 {len(anomalies)} 条异常记录（上班状态有差旅消费）")
         return anomalies
     
     def analyze_booking_behavior(self) -> Dict[str, Any]:

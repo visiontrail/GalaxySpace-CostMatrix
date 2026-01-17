@@ -158,8 +158,8 @@ export const exportResults = async (filePath: string): Promise<Blob> => {
 
 /**
  * 导出 Dashboard 数据为 PPT
- * @param dashboardData Dashboard 分析数据
- * @param charts 图表图片数组
+ * @param dashboardData Dashboard 分析结果
+ * @param charts 前端导出的图表图片（base64 dataURL）
  * @returns PPT 文件 Blob
  */
 export const exportPpt = async (
@@ -170,14 +170,14 @@ export const exportPpt = async (
     `${API_BASE_URL}/export-ppt`,
     {
       dashboard_data: dashboardData,
-      charts: charts
+      charts,
     },
     {
       responseType: 'blob',
-      timeout: 180000,
+      timeout: 300000,
       headers: {
-        'Content-Type': 'application/json'
-      }
+        'Content-Type': 'application/json',
+      },
     }
   )
 
@@ -408,6 +408,33 @@ export const getLevel1DepartmentStatistics = async (
       late_after_1930_count: number
       total_cost: number
     }>
+  }>>
+}
+
+/**
+ * 获取异常记录详情
+ * @param filePath 文件路径（可选，不提供则从数据库读取）
+ * @param months 月份列表（数据库模式下使用）
+ * @returns 异常记录列表
+ */
+export const getAnomalies = async (
+  filePath: string,
+  months?: string[]
+): Promise<ApiResponse<{
+  anomalies: any[]
+  total_count: number
+}>> => {
+  const params: Record<string, any> = {}
+  if (filePath) {
+    params.file_path = filePath
+  }
+  if (months && months.length > 0) {
+    params.months = months.join(',')
+  }
+
+  return apiClient.get('/anomalies', { params }) as Promise<ApiResponse<{
+    anomalies: any[]
+    total_count: number
   }>>
 }
 

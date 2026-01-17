@@ -20,11 +20,9 @@ import {
   ArrowLeftOutlined,
   DollarOutlined,
   UserOutlined,
-  CalendarOutlined,
   WarningOutlined,
   FileTextOutlined,
   TeamOutlined,
-  ClockCircleOutlined,
   ProjectOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -77,6 +75,11 @@ const Projects = () => {
   }
 
   const handleViewOrders = async (project: ProjectDetail) => {
+    if (!selectedMonth) {
+      message.warning('请先选择月份')
+      return
+    }
+
     setSelectedProject(project)
     setDrawerVisible(true)
     setOrdersLoading(true)

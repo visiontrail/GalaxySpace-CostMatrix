@@ -87,6 +87,16 @@ export interface Anomaly {
   detail: string            // 详细说明
 }
 
+// ============ 异常记录详情 ============
+export interface AnomalyDetail {
+  date: string              // 日期
+  name: string              // 姓名
+  dept: string              // 部门
+  type: string              // 异常类型
+  status?: string           // 考勤状态
+  detail: string            // 详细说明
+}
+
 // ============ 完整分析结果 ============
 export interface AnalysisResult {
   summary: Summary

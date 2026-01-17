@@ -308,6 +308,7 @@ async def analyze_excel(
                 'name': item.get('name', ''),
                 'dept': item.get('department', ''),
                 'type': item.get('anomaly_type', 'Unknown'),
+                'status': item.get('attendance_status', ''),
                 'detail': item.get('description', '')
             }
             for item in anomalies
@@ -999,3 +1000,72 @@ async def delete_month(
         logger.exception(f"删除月份数据失败: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"删除月份数据失败: {str(e)}")
+
+
+@router.get("/anomalies")
+async def get_anomalies(
+    file_path: Optional[str] = Query(None, description="文件路径（可选，不提供则从数据库读取）"),
+    months: Optional[str] = Query(None, description="月份列表，逗号分隔 (例如: 2025-01,2025-02)"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取异常记录详情
+
+    支持从Excel文件或数据库获取数据
+
+    Args:
+        file_path: Excel 文件路径（可选）
+        months: 月份列表（数据库模式下使用）
+    """
+    # 如果没有提供file_path，从数据库获取
+    if not file_path:
+        if not months:
+            raise HTTPException(status_code=400, detail="数据库模式下必须提供months参数")
+
+        try:
+            from app.db.crud import get_anomalies_by_month
+
+            months_list = [m.strip() for m in months.split(',') if m.strip()]
+            # 获取所有月份的异常记录
+            all_anomalies = []
+            for month in months_list:
+                anomalies = get_anomalies_by_month(db, month, limit=1000)
+                all_anomalies.extend(anomalies)
+
+            # 按日期降序排序
+            all_anomalies.sort(key=lambda x: x['date'], reverse=True)
+
+            return AnalysisResult(
+                success=True,
+                message="获取异常记录成功",
+                data={
+                    "anomalies": all_anomalies,
+                    "total_count": len(all_anomalies)
+                }
+            )
+        except Exception as e:
+            logger.exception(f"从数据库获取异常记录失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取异常记录失败: {str(e)}")
+
+    # 从Excel文件获取
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    try:
+        from app.db.crud import get_anomalies
+
+        months_list = [m.strip() for m in months.split(',')] if months else None
+        anomalies = get_anomalies(db, file_path, months=months_list, limit=1000)
+
+        return AnalysisResult(
+            success=True,
+            message="获取异常记录成功",
+            data={
+                "anomalies": anomalies,
+                "total_count": len(anomalies)
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f"获取异常记录失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取异常记录失败: {str(e)}")

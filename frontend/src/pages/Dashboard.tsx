@@ -28,8 +28,8 @@ import {
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
-import type { AnalysisResult, Anomaly, DepartmentStat, ProjectTop10 } from '@/types'
-import { analyzeExcel, exportResults, exportPpt } from '@/services/api'
+import type { AnalysisResult, DepartmentStat, ProjectTop10 } from '@/types'
+import { analyzeExcel, exportPpt } from '@/services/api'
 import { useMonthContext } from '@/contexts/MonthContext'
 
 const { Title, Text } = Typography
@@ -618,54 +618,6 @@ const Dashboard = () => {
     }
   ]
 
-  // 异常记录表格列
-  const anomalyColumns = [
-    {
-      title: '日期',
-      dataIndex: 'date',
-      key: 'date',
-      width: 120,
-      sorter: (a: Anomaly, b: Anomaly) => a.date.localeCompare(b.date)
-    },
-    {
-      title: '姓名',
-      dataIndex: 'name',
-      key: 'name',
-      width: 100
-    },
-    {
-      title: '部门',
-      dataIndex: 'dept',
-      key: 'dept',
-      width: 120
-    },
-    {
-      title: '异常类型',
-      dataIndex: 'type',
-      key: 'type',
-      width: 120,
-      render: (type: string) => {
-        const colorMap: Record<string, string> = {
-          'Conflict': 'red',
-          'Missing': 'orange',
-          'Duplicate': 'purple',
-          'Invalid': 'volcano'
-        }
-        return (
-          <Tag color={colorMap[type] || 'default'}>
-            {type}
-          </Tag>
-        )
-      }
-    },
-    {
-      title: '详细说明',
-      dataIndex: 'detail',
-      key: 'detail',
-      ellipsis: true
-    }
-  ]
-
   const formatMonthDisplay = (month: string) => {
     const [year, monthNum] = month.split('-')
     return `${year}年${monthNum}月`
@@ -732,7 +684,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card hoverable>
+          <Card variant="borderless" hoverable onClick={() => navigate('/anomalies')} style={{ cursor: 'pointer' }}>
             <Statistic
               title="异常记录"
               value={data.summary.anomaly_count}
@@ -740,6 +692,9 @@ const Dashboard = () => {
               suffix="条"
               valueStyle={{ color: '#cf1322' }}
             />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              点击查看详情
+            </Text>
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>

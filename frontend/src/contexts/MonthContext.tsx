@@ -53,7 +53,7 @@ export const MonthProvider: React.FC<MonthProviderProps> = ({ children }) => {
       onOk: async () => {
         try {
           const res = await deleteMonthApi(month)
-          if (res.success) {
+          if (res.success && res.data) {
             const deletedData = res.data
             message.success(
               `删除成功！考勤记录: ${deletedData.deleted_attendance}条，差旅记录: ${deletedData.deleted_travel}条，异常记录: ${deletedData.deleted_anomalies}条`
