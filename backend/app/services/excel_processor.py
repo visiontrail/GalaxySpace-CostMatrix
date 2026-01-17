@@ -711,21 +711,28 @@ class ExcelProcessor:
             if df.empty:
                 continue
             
-            # 尝试关联部门信息
-            if not attendance_df.empty and '一级部门' in attendance_df.columns:
-                # Merge with attendance to get department
+            # 尝试关联部门信息（优先使用差旅表中的部门，如果没有则从考勤表获取）
+            df = df.copy()
+            if '一级部门' in df.columns:
+                # 差旅表已有部门信息，优先使用
+                pass
+            elif not attendance_df.empty and '姓名' in attendance_df.columns and '一级部门' in attendance_df.columns:
+                # 从考勤表获取部门信息
                 name_dept = attendance_df[['姓名', '一级部门']].drop_duplicates()
                 df = df.merge(name_dept, on='姓名', how='left')
-            
+
             if '一级部门' not in df.columns:
                 continue
-            
+
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
-            
+
             for _, row in df.iterrows():
-                dept = row.get('一级部门', '未知部门')
-                if pd.isna(dept):
+                dept = row.get('一级部门')
+                # 处理部门为空的情况
+                if pd.isna(dept) or (isinstance(dept, str) and dept.strip() == ''):
                     dept = '未知部门'
+                else:
+                    dept = str(dept).strip()
                 
                 if dept not in dept_costs:
                     stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
@@ -916,7 +923,7 @@ class ExcelProcessor:
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
             date_col = '出发日期' if '出发日期' in df.columns else '入住日期'
 
-            # 获取考勤数据用于部门信息
+            # 获取考勤数据用于部门信息（作为备用）
             attendance_df = self.clean_attendance_data()
             person_dept_map = {}
             if not attendance_df.empty and '姓名' in attendance_df.columns and '一级部门' in attendance_df.columns:
@@ -928,7 +935,18 @@ class ExcelProcessor:
                 amount = row.get(amount_col, 0)
                 person = row.get('姓名', '')
                 date_val = row.get(date_col, '')
-                department = person_dept_map.get(person, '未知部门')
+
+                # 优先使用差旅表中的部门信息，如果没有则从考勤表中查找
+                department = None
+                if '一级部门' in df.columns:
+                    department = row.get('一级部门')
+                    # 处理空值或NaN
+                    if pd.isna(department) or (isinstance(department, str) and department.strip() == ''):
+                        department = None
+                if not department:
+                    department = person_dept_map.get(person, '未知部门')
+                else:
+                    department = str(department).strip()
 
                 # 处理日期
                 if pd.notna(date_val):
@@ -1098,7 +1116,18 @@ class ExcelProcessor:
                 amount = row.get(amount_col, 0)
                 person = row.get('姓名', '')
                 date_val = row.get(date_col, '')
-                department = person_dept_map.get(person, '未知部门')
+
+                # 优先使用差旅表中的部门信息，如果没有则从考勤表中查找
+                department = None
+                if '一级部门' in df.columns:
+                    department = row.get('一级部门')
+                    # 处理空值或NaN
+                    if pd.isna(department) or (isinstance(department, str) and department.strip() == ''):
+                        department = None
+                if not department:
+                    department = person_dept_map.get(person, '未知部门')
+                else:
+                    department = str(department).strip()
 
                 # 处理日期
                 if pd.notna(date_val):

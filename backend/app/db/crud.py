@@ -69,7 +69,7 @@ def get_or_create_department_hierarchy(db: Session, level1_name: str, level2_nam
         level2_id = get_or_create_department(db, level2_name, level=2, parent_id=level1_id)
 
     level3_id = 0
-    if level3_name and not (isinstance(level3_name, float) and pd.isna(level3_name)):
+    if level3_name and not (isinstance(level3_name, float) and pd.isna(level3_name)) and level2_id > 0:
         level3_id = get_or_create_department(db, level3_name, level=3, parent_id=level2_id)
 
     return level1_id, level2_id, level3_id
@@ -92,7 +92,7 @@ def get_or_create_project(db: Session, code: str, name: str) -> int:
     return project.id
 
 
-def get_or_create_employee(db: Session, name: str, level1_id: int, level2_id: Optional[int] = None, level3_id: Optional[int] = None) -> int:
+def get_or_create_employee(db: Session, name: str, level1_id: int, level2_id: Optional[int] = None, level3_id: Optional[int] = None, update_dept: bool = False) -> int:
     """Get or create an employee with full department hierarchy, returning their ID."""
     import pandas as pd
 
@@ -109,7 +109,8 @@ def get_or_create_employee(db: Session, name: str, level1_id: int, level2_id: Op
         )
         db.add(employee)
         db.flush()
-    else:
+    elif update_dept:
+        # 只有在明确要求更新部门时才更新（避免覆盖已有的正确部门信息）
         employee.department_id = level1_id
         if level2_id and level2_id > 0:
             employee.level2_department_id = level2_id
@@ -246,7 +247,8 @@ def batch_insert_travel_expenses(
         # Create full department hierarchy
         level1_id, level2_id, level3_id = get_or_create_department_hierarchy(db, level1_name, level2_name, level3_name)
 
-        emp_id = get_or_create_employee(db, name, level1_id, level2_id, level3_id)
+        # 只有当部门信息有效时才更新员工部门（避免用"未知部门"覆盖已有正确部门）
+        emp_id = get_or_create_employee(db, name, level1_id, level2_id, level3_id, update_dept=(level1_name != '未知部门'))
 
         project_str = str(row.get('项目', ''))
         if pd.isna(project_str) or project_str.strip() == '':
@@ -1472,6 +1474,142 @@ def get_total_project_count_by_month(db: Session, month: str) -> int:
     return result or 0
 
 
+def get_order_breakdown_by_month(db: Session, month: str) -> dict:
+    """Get order breakdown by expense type (count, not cost) for the given month."""
+    from datetime import datetime, timedelta
+
+    upload_ids = get_all_uploads_for_month(db, month)
+
+    if not upload_ids:
+        return {
+            'total': 0,
+            'flight': 0,
+            'hotel': 0,
+            'train': 0
+        }
+
+    month_start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
+
+    result = db.query(
+        TravelExpense.expense_type.label('expense_type'),
+        func.count(TravelExpense.id).label('count')
+    ).filter(
+        TravelExpense.upload_id.in_(upload_ids),
+        TravelExpense.date >= month_start,
+        TravelExpense.date <= month_end
+    ).group_by(
+        TravelExpense.expense_type
+    ).all()
+
+    breakdown = {
+        'total': 0,
+        'flight': 0,
+        'hotel': 0,
+        'train': 0
+    }
+
+    for row in result:
+        if row.expense_type in breakdown:
+            breakdown[row.expense_type] = row.count or 0
+            breakdown['total'] += row.count or 0
+
+    return breakdown
+
+
+def get_over_standard_breakdown_by_month(db: Session, month: str) -> dict:
+    """Get over standard order breakdown by expense type for the given month."""
+    from datetime import datetime, timedelta
+
+    upload_ids = get_all_uploads_for_month(db, month)
+
+    if not upload_ids:
+        return {
+            'total': 0,
+            'flight': 0,
+            'hotel': 0,
+            'train': 0
+        }
+
+    month_start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
+
+    result = db.query(
+        TravelExpense.expense_type.label('expense_type'),
+        func.count(TravelExpense.id).label('count')
+    ).filter(
+        TravelExpense.upload_id.in_(upload_ids),
+        TravelExpense.date >= month_start,
+        TravelExpense.date <= month_end,
+        TravelExpense.is_over_standard == True
+    ).group_by(
+        TravelExpense.expense_type
+    ).all()
+
+    breakdown = {
+        'total': 0,
+        'flight': 0,
+        'hotel': 0,
+        'train': 0
+    }
+
+    for row in result:
+        if row.expense_type in breakdown:
+            breakdown[row.expense_type] = row.count or 0
+            breakdown['total'] += row.count or 0
+
+    return breakdown
+
+
+def get_flight_over_type_breakdown_by_month(db: Session, month: str) -> dict:
+    """Get flight over type breakdown for the given month."""
+    from datetime import datetime, timedelta
+    import re
+
+    upload_ids = get_all_uploads_for_month(db, month)
+
+    if not upload_ids:
+        return {}
+
+    month_start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
+
+    results = db.query(
+        TravelExpense.over_type.label('over_type')
+    ).filter(
+        TravelExpense.upload_id.in_(upload_ids),
+        TravelExpense.date >= month_start,
+        TravelExpense.date <= month_end,
+        TravelExpense.expense_type == 'flight',
+        TravelExpense.is_over_standard == True,
+        TravelExpense.over_type.isnot(None),
+        TravelExpense.over_type != ''
+    ).all()
+
+    breakdown = {}
+    for row in results:
+        if row.over_type:
+            # 处理可能包含多个标签的 over_type 字段（如 "超折扣 超时间"）
+            raw = str(row.over_type)
+            tokens = []
+
+            # 常见分隔符拆分
+            for part in re.split(r'[;,，、/\\s]+', raw):
+                cleaned = part.strip()
+                if cleaned and '超' in cleaned:
+                    tokens.append(cleaned)
+
+            # 兜底：处理未显式分隔但包含关键字的场景
+            for keyword in ['超折扣', '超时间']:
+                if keyword in raw and keyword not in tokens:
+                    tokens.append(keyword)
+
+            for token in tokens:
+                breakdown[token] = breakdown.get(token, 0) + 1
+
+    return breakdown
+
+
 def get_dashboard_data(
     db: Session,
     months: Optional[List[str]] = None,
@@ -1491,30 +1629,17 @@ def get_dashboard_data(
     project_stats = get_project_stats_by_month(db, month, top_n=20)
     anomalies = get_anomalies_by_month(db, month, limit=50)
     total_project_count = get_total_project_count_by_month(db, month)
-
-    order_breakdown = {
-        'flight': 0,
-        'hotel': 0,
-        'train': 0
-    }
-
-    for dept in department_stats:
-        order_breakdown['flight'] += dept.get('flight_cost', 0)
-        order_breakdown['hotel'] += dept.get('hotel_cost', 0)
-        order_breakdown['train'] += dept.get('train_cost', 0)
+    order_breakdown = get_order_breakdown_by_month(db, month)
+    over_standard_breakdown = get_over_standard_breakdown_by_month(db, month)
+    flight_over_type_breakdown = get_flight_over_type_breakdown_by_month(db, month)
 
     return {
         'summary': {
             **summary,
             'anomaly_count': len(anomalies),
             'order_breakdown': order_breakdown,
-            'over_standard_breakdown': {
-                'total': summary['over_standard_count'],
-                'flight': 0,
-                'hotel': 0,
-                'train': 0
-            },
-            'flight_over_type_breakdown': {},
+            'over_standard_breakdown': over_standard_breakdown,
+            'flight_over_type_breakdown': flight_over_type_breakdown,
             'total_project_count': total_project_count
         },
         'department_stats': [

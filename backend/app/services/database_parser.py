@@ -78,10 +78,30 @@ class DatabaseParser:
                 ("火车票", "train_count"),
             ]
 
+            # 获取考勤数据用于填充部门信息
+            attendance_df = None
+            if "状态明细" in sheets_data:
+                attendance_df = self.processor.clean_attendance_data()
+                if not attendance_df.empty and '姓名' in attendance_df.columns and '一级部门' in attendance_df.columns:
+                    # 构建姓名到部门的映射
+                    person_dept_map = attendance_df[['姓名', '一级部门']].drop_duplicates().set_index('姓名')['一级部门'].to_dict()
+                else:
+                    person_dept_map = {}
+                    attendance_df = None
+            else:
+                person_dept_map = {}
+
             for sheet_name, count_key in expense_types:
                 if sheet_name in sheets_data:
                     expense_df = self.processor.clean_travel_data(sheet_name)
                     if not expense_df.empty:
+                        # 如果差旅表中一级部门为空，尝试从考勤表中填充
+                        if attendance_df is not None and '一级部门' in expense_df.columns:
+                            # 对于一级部门为NaN的记录，从考勤表查找部门信息
+                            mask = expense_df['一级部门'].isna()
+                            if mask.any():
+                                expense_df.loc[mask, '一级部门'] = expense_df.loc[mask, '姓名'].map(person_dept_map)
+
                         count = batch_insert_travel_expenses(
                             db, upload_record.id, expense_df, sheet_name
                         )
