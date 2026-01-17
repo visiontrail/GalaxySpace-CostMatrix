@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Layout, Menu, Typography, Button, Space, Empty } from 'antd'
+import { Layout, Menu, Typography, Button, Space, Empty, Popconfirm } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
+import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { MonthContextValue } from '@/types'
 import { MonthProvider, useMonthContext } from '@/contexts/MonthContext'
 
@@ -64,7 +64,7 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
   handleMenuClick,
   location,
 }) => {
-  const { availableMonths, selectedMonth, selectMonth, refreshMonths } = useMonthContext()
+  const { availableMonths, selectedMonth, selectMonth, refreshMonths, deleteMonth } = useMonthContext()
 
   useEffect(() => {
     refreshMonths()
@@ -75,7 +75,8 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
     selectedMonth,
     selectMonth,
     refreshMonths,
-  }), [availableMonths, selectedMonth, selectMonth, refreshMonths])
+    deleteMonth,
+  }), [availableMonths, selectedMonth, selectMonth, refreshMonths, deleteMonth])
 
   const formatMonth = (month: string) => {
     const [year, monthNum] = month.split('-')
@@ -86,9 +87,22 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
     key: month,
     label: (
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <span style={{ fontWeight: 600, color: '#1f1f1f' }}>
-          {formatMonth(month)}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontWeight: 600, color: '#1f1f1f' }}>
+            {formatMonth(month)}
+          </span>
+          <Button
+            type="text"
+            size="small"
+            icon={<DeleteOutlined />}
+            danger
+            onClick={(e) => {
+              e.stopPropagation()
+              deleteMonth(month)
+            }}
+            style={{ padding: '2px 4px', minWidth: 'auto' }}
+          />
+        </div>
       </div>
     ),
   }))

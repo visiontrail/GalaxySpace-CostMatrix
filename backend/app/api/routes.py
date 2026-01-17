@@ -954,3 +954,48 @@ async def get_level1_department_statistics(
     except Exception as e:
         logger.exception(f"获取一级部门统计数据失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取一级部门统计数据失败: {str(e)}")
+
+
+@router.delete("/months/{month}")
+async def delete_month(
+    month: str,
+    db: Session = Depends(get_db)
+):
+    """
+    删除指定月份的所有数据
+
+    删除内容包括:
+    - 该月份的考勤记录
+    - 该月份的差旅费用记录
+    - 该月份的异常记录
+    - 如果上传文件仅包含该月份数据，则同时删除上传记录和原始Excel文件
+
+    Args:
+        month: 月份 (YYYY-MM格式)
+        db: 数据库会话
+
+    Returns:
+        删除统计信息
+    """
+    try:
+        from app.db.crud import delete_month_data
+
+        # 验证月份格式
+        try:
+            datetime.strptime(month, "%Y-%m")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="月份格式错误，应为 YYYY-MM")
+
+        result = delete_month_data(db, month)
+
+        return {
+            "success": True,
+            "message": f"已删除 {month} 月份的数据",
+            "data": result
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"删除月份数据失败: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除月份数据失败: {str(e)}")

@@ -708,7 +708,7 @@ const Dashboard = () => {
       {/* 核心指标卡片 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable>
             <Statistic
               title="总成本"
               value={data.summary.total_cost}
@@ -720,7 +720,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable>
             <Statistic
               title="平均工时"
               value={data.summary.avg_work_hours}
@@ -732,7 +732,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable>
             <Statistic
               title="异常记录"
               value={data.summary.anomaly_count}
@@ -743,7 +743,7 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable>
             <Statistic
               title="超标订单"
               value={overStandardCount}
@@ -893,7 +893,6 @@ const Dashboard = () => {
       {/* 部门统计表格 */}
       <Card
         title={<><TeamOutlined /> 部门统计详情</>}
-        variant="borderless"
         style={{ marginBottom: 24 }}
       >
         <Table
@@ -902,8 +901,8 @@ const Dashboard = () => {
           rowKey="dept"
           pagination={{
             pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 个部门`
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 个部门`,
           }}
           scroll={{ x: 800 }}
           size="middle"
@@ -913,7 +912,6 @@ const Dashboard = () => {
       {/* 项目统计表格 */}
       <Card
         title={<><ProjectOutlined /> 项目成本详情（Top 20 + 其他）</>}
-        variant="borderless"
         style={{ marginBottom: 24 }}
       >
         <Table
@@ -922,30 +920,6 @@ const Dashboard = () => {
           rowKey={(record) => record.code || '其他'}
           pagination={false}
           scroll={{ x: 600 }}
-          size="middle"
-        />
-      </Card>
-
-      {/* 异常记录表格 */}
-      <Card
-        title={<><WarningOutlined /> 异常记录详情</>}
-        variant="borderless"
-        extra={
-          <Tag color="red">
-            共 {data.anomalies.length} 条异常
-          </Tag>
-        }
-      >
-        <Table
-          dataSource={data.anomalies}
-          columns={anomalyColumns}
-          rowKey={(record) => `${record.date}-${record.name}-${record.type}`}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条异常记录`
-          }}
-          scroll={{ x: 800 }}
           size="middle"
         />
       </Card>

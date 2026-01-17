@@ -329,7 +329,11 @@ const Projects = () => {
               dataSource={projects}
               columns={projectColumns}
               rowKey="code"
-              pagination={false}
+              pagination={{
+                pageSize: 20,
+                showSizeChanger: false,
+                showTotal: (total) => `共 ${total} 个项目`,
+              }}
               scroll={{ x: 1500 }}
               size="middle"
             />
@@ -485,7 +489,7 @@ const Projects = () => {
                     rowKey="id"
                     pagination={{
                       pageSize: 10,
-                      showSizeChanger: true,
+                      showSizeChanger: false,
                       showTotal: (total) => `共 ${total} 条订单记录`,
                     }}
                     scroll={{ x: 1000 }}

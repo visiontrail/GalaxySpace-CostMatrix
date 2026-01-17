@@ -301,7 +301,11 @@ const Departments = () => {
           columns={columns}
           rowKey="name"
           loading={loading}
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 个部门`,
+          }}
         />
         {/* Level 2: 显示一级部门统计数据 */}
         {currentLevel === 2 && renderLevel1Statistics()}
@@ -448,7 +452,11 @@ const Departments = () => {
             dataSource={level2_department_stats}
             columns={level2StatsColumns}
             rowKey="name"
-            pagination={{ pageSize: 20 }}
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: false,
+              showTotal: (total) => `共 ${total} 个二级部门`,
+            }}
             size="small"
           />
         </Card>

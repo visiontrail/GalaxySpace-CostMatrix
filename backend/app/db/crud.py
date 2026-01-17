@@ -2383,3 +2383,96 @@ def get_project_orders_from_db(
         })
 
     return records
+
+
+def delete_month_data(db: Session, month: str) -> dict:
+    """
+    Delete all data for a specific month from the database.
+
+    This deletes:
+    - Attendance records for the month
+    - Travel expenses for the month
+    - Anomalies for the month
+    - The corresponding Upload records if they only contain data for this month
+
+    Args:
+        db: Database session
+        month: Month in 'YYYY-MM' format
+
+    Returns:
+        dict: Statistics about what was deleted
+    """
+    import os
+    from pathlib import Path
+
+    # Get all uploads that contain data for this month
+    uploads_with_month = db.query(Upload).join(
+        AttendanceRecord, Upload.id == AttendanceRecord.upload_id
+    ).filter(
+        text(f"strftime('%Y-%m', fact_attendance.date) = :month")
+    ).params(month=month).distinct().all()
+
+    upload_ids = [u.id for u in uploads_with_month]
+
+    if not upload_ids:
+        return {
+            'success': True,
+            'deleted_uploads': [],
+            'deleted_attendance': 0,
+            'deleted_travel': 0,
+            'deleted_anomalies': 0,
+            'deleted_files': []
+        }
+
+    # Delete attendance records for this month
+    attendance_deleted = db.query(AttendanceRecord).filter(
+        AttendanceRecord.upload_id.in_(upload_ids),
+        text(f"strftime('%Y-%m', fact_attendance.date) = :month")
+    ).params(month=month).delete(synchronize_session=False)
+
+    # Delete travel expenses for this month
+    travel_deleted = db.query(TravelExpense).filter(
+        TravelExpense.upload_id.in_(upload_ids),
+        text(f"strftime('%Y-%m', fact_travel_expense.date) = :month")
+    ).params(month=month).delete(synchronize_session=False)
+
+    # Delete anomalies for this month
+    anomalies_deleted = db.query(Anomaly).filter(
+        Anomaly.upload_id.in_(upload_ids),
+        text(f"strftime('%Y-%m', anomalies.date) = :month")
+    ).params(month=month).delete(synchronize_session=False)
+
+    # Check which uploads now have no data and delete them along with their files
+    deleted_uploads = []
+    deleted_files = []
+
+    for upload in uploads_with_month:
+        # Check if this upload has any remaining data
+        has_attendance = db.query(AttendanceRecord).filter_by(upload_id=upload.id).first()
+        has_travel = db.query(TravelExpense).filter_by(upload_id=upload.id).first()
+        has_anomalies = db.query(Anomaly).filter_by(upload_id=upload.id).first()
+
+        if not (has_attendance or has_travel or has_anomalies):
+            # Delete the upload record
+            deleted_uploads.append(upload.file_path)
+            db.delete(upload)
+
+            # Delete the Excel file
+            file_path = Path(upload.file_path)
+            if file_path.exists():
+                try:
+                    os.remove(file_path)
+                    deleted_files.append(str(file_path))
+                except Exception as e:
+                    logger.warning(f"Failed to delete file {file_path}: {e}")
+
+    db.commit()
+
+    return {
+        'success': True,
+        'deleted_uploads': deleted_uploads,
+        'deleted_attendance': attendance_deleted,
+        'deleted_travel': travel_deleted,
+        'deleted_anomalies': anomalies_deleted,
+        'deleted_files': deleted_files
+    }

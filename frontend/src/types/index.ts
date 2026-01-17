@@ -121,6 +121,7 @@ export interface MonthContextValue {
   selectedMonth: string | null
   selectMonth: (month: string | null) => void
   refreshMonths: () => Promise<void>
+  deleteMonth: (month: string) => Promise<void>
 }
 
 // ============ 部门层级结构 ============

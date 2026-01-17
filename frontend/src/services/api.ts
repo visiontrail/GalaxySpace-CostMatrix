@@ -81,6 +81,27 @@ export const getAvailableMonths = async (): Promise<ApiResponse<string[]>> => {
 }
 
 /**
+ * 删除指定月份的所有数据
+ * @param month 月份 (YYYY-MM格式)
+ * @returns 删除结果
+ */
+export const deleteMonth = async (month: string): Promise<ApiResponse<{
+  deleted_uploads: string[]
+  deleted_attendance: number
+  deleted_travel: number
+  deleted_anomalies: number
+  deleted_files: string[]
+}>> => {
+  return apiClient.delete(`/months/${encodeURIComponent(month)}`) as Promise<ApiResponse<{
+    deleted_uploads: string[]
+    deleted_attendance: number
+    deleted_travel: number
+    deleted_anomalies: number
+    deleted_files: string[]
+  }>>
+}
+
+/**
  * 分析 Excel 文件
  * POST /api/analyze
  * @param filePath 文件路径（可选，不提供则从数据库读取）
