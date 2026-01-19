@@ -230,6 +230,48 @@ def batch_insert_travel_expenses(
     type_mapping = {'机票': 'flight', '酒店': 'hotel', '火车票': 'train'}
     mapped_type = type_mapping.get(expense_type, expense_type.lower())
 
+    def _to_clean_str(v) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, float) and pd.isna(v):
+            return ""
+        if pd.isna(v):
+            return ""
+        return str(v).strip()
+
+    def _is_yes(v) -> bool:
+        s = _to_clean_str(v)
+        if not s:
+            return False
+        # 兼容 "是"/"否"、"Y"/"N"、"true"/"false"、"1"/"0"
+        if s in {"是", "Y", "YES", "Yes", "yes", "TRUE", "True", "true", "1"}:
+            return True
+        return "是" in s
+
+    def _extract_over_type(row) -> str:
+        # 不同月份模板可能使用不同列名
+        for key in ("超标类型", "超标项", "超标项目", "超标类别", "超标选项"):
+            val = _to_clean_str(row.get(key, ""))
+            if val:
+                return val
+        return ""
+
+    def _compute_is_over_standard(sheet: str, row) -> bool:
+        # 酒店/火车票通常提供“是否超标”
+        if _is_yes(row.get("是否超标")):
+            return True
+
+        over_type = _extract_over_type(row)
+        if not over_type:
+            return False
+
+        # 机票：按“超标类型”关键字判断
+        if sheet == "机票":
+            return any(k in over_type for k in ("超折扣", "超时间", "超标"))
+
+        # 兜底：若有“超标”描述但没有“是否超标”
+        return "超" in over_type
+
     records = []
     for _, row in df.iterrows():
         name = row['姓名']
@@ -271,6 +313,9 @@ def batch_insert_travel_expenses(
         if not travel_date:
             continue
 
+        is_over_standard = _compute_is_over_standard(expense_type, row)
+        over_type = _extract_over_type(row)
+
         records.append({
             'upload_id': upload_id,
             'date': travel_date,
@@ -279,8 +324,8 @@ def batch_insert_travel_expenses(
             'expense_type': mapped_type,
             'amount': float(row.get('授信金额', 0)) if pd.notna(row.get('授信金额')) else 0.0,
             'order_id': str(row.get('订单号', '')) if pd.notna(row.get('订单号')) else '',
-            'is_over_standard': bool(row.get('是否超标') == '是'),
-            'over_type': str(row.get('超标类型', '')) if pd.notna(row.get('超标类型')) else '',
+            'is_over_standard': bool(is_over_standard),
+            'over_type': over_type,
             'advance_days': int(row.get('提前预定天数')) if pd.notna(row.get('提前预定天数')) else None
         })
 
@@ -2101,7 +2146,12 @@ def get_all_projects_from_db(
     if not upload_ids:
         return []
 
+    from datetime import datetime, timedelta
+    month_start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
+
     project_result = db.query(
+        Project.id.label('project_id'),
         Project.code,
         Project.name,
         func.sum(TravelExpense.amount).label('total_cost'),
@@ -2121,9 +2171,11 @@ def get_all_projects_from_db(
     ).join(
         Employee, TravelExpense.employee_id == Employee.id
     ).filter(
-        TravelExpense.upload_id.in_(upload_ids)
+        TravelExpense.upload_id.in_(upload_ids),
+        TravelExpense.date >= month_start,
+        TravelExpense.date <= month_end
     ).group_by(
-        Project.code, Project.name
+        Project.id, Project.code, Project.name
     ).order_by(
         func.sum(TravelExpense.amount).desc()
     ).all()
@@ -2134,8 +2186,10 @@ def get_all_projects_from_db(
         persons = db.query(Employee.name).join(
             TravelExpense, Employee.id == TravelExpense.employee_id
         ).filter(
-            TravelExpense.project_id == row.code,
-            TravelExpense.upload_id.in_(upload_ids)
+            TravelExpense.project_id == row.project_id,
+            TravelExpense.upload_id.in_(upload_ids),
+            TravelExpense.date >= month_start,
+            TravelExpense.date <= month_end
         ).distinct().all()
         person_list = [p.name for p in persons]
 
@@ -2145,8 +2199,10 @@ def get_all_projects_from_db(
         ).join(
             TravelExpense, Employee.id == TravelExpense.employee_id
         ).filter(
-            TravelExpense.project_id == row.code,
-            TravelExpense.upload_id.in_(upload_ids)
+            TravelExpense.project_id == row.project_id,
+            TravelExpense.upload_id.in_(upload_ids),
+            TravelExpense.date >= month_start,
+            TravelExpense.date <= month_end
         ).distinct().all()
         department_list = [d.name for d in departments]
 
@@ -2348,6 +2404,10 @@ def get_project_orders_from_db(
     if not upload_ids:
         return []
 
+    from datetime import datetime, timedelta
+    month_start = datetime.strptime(f"{month}-01", "%Y-%m-%d")
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
+
     result = db.query(
         TravelExpense.id.label('id'),
         Project.code.label('project_code'),
@@ -2368,7 +2428,9 @@ def get_project_orders_from_db(
         Department, Employee.department_id == Department.id
     ).filter(
         TravelExpense.upload_id.in_(upload_ids),
-        Project.code == project_code
+        Project.code == project_code,
+        TravelExpense.date >= month_start,
+        TravelExpense.date <= month_end
     ).order_by(
         TravelExpense.date.desc()
     ).all()

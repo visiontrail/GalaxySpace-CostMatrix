@@ -137,6 +137,9 @@ class ExcelProcessor:
         self.logger.info(f"[{sheet_name}] 原始行数: {len(df)}")
 
         df = df.copy()
+        # 标准化列名：去除首尾空格，避免不同月份 Excel 列名细微差异导致匹配失败
+        df.columns = [str(c).strip() for c in df.columns]
+        original_df = df.copy()
         
         # 处理金额字段
         amount_col = '授信金额' if '授信金额' in df.columns else '金额'
@@ -149,23 +152,86 @@ class ExcelProcessor:
         else:
             self.logger.warning(f"[{sheet_name}] 未找到金额列（授信金额或金额）")
         
-        # 处理日期字段（映射多种可能的列名到标准列名）
-        date_col_mapping = {
-            '机票': [('起飞时间', '起飞日期'), ('起飞时间.1', '起飞日期.1')],
-            '酒店': [('入住时间', '入住日期'), ('入住日期', '入住日期')],
-            '火车票': [('出发时间', '出发日期'), ('出发日期', '出发日期')]
-        }
-        
-        found_date_cols = []
-        if sheet_name in date_col_mapping:
-            for source_col, target_col in date_col_mapping[sheet_name]:
-                if source_col in df.columns:
-                    df[target_col] = pd.to_datetime(df[source_col], errors='coerce')
-                    if source_col != target_col:
-                        found_date_cols.append(f"{source_col}→{target_col}")
-                    else:
-                        found_date_cols.append(source_col)
-        
+        def _parse_datetime_avoiding_time_only(series: pd.Series) -> pd.Series:
+            """
+            将列解析为 datetime，并避免把纯时间值（如 '22:17' 或 datetime.time）解析为“今天”的日期。
+            """
+            if series is None:
+                return pd.Series(dtype="datetime64[ns]")
+
+            # 已经是 datetime 类型
+            try:
+                if pd.api.types.is_datetime64_any_dtype(series):
+                    return pd.to_datetime(series, errors="coerce")
+            except Exception:
+                pass
+
+            # 处理 datetime.time 或纯时间字符串
+            time_only_regex = re.compile(r"^\\s*\\d{1,2}:\\d{2}(:\\d{2})?\\s*$")
+
+            def _is_time_obj(v: Any) -> bool:
+                try:
+                    from datetime import time as dt_time
+                    return isinstance(v, dt_time)
+                except Exception:
+                    return False
+
+            if series.dtype == object:
+                cleaned = series.copy()
+                mask_time_obj = cleaned.map(_is_time_obj)
+                cleaned.loc[mask_time_obj] = None
+
+                str_series = cleaned.astype(str)
+                mask_time_str = str_series.str.match(time_only_regex, na=False)
+                cleaned.loc[mask_time_str] = None
+
+                return pd.to_datetime(cleaned, errors="coerce")
+
+            return pd.to_datetime(series, errors="coerce")
+
+        found_date_cols: List[str] = []
+        if sheet_name == '机票':
+            if '起飞时间' in original_df.columns:
+                df['起飞日期'] = _parse_datetime_avoiding_time_only(original_df['起飞时间'])
+                found_date_cols.append('起飞时间→起飞日期')
+            if '起飞时间.1' in original_df.columns:
+                df['起飞日期.1'] = _parse_datetime_avoiding_time_only(original_df['起飞时间.1'])
+                found_date_cols.append('起飞时间.1→起飞日期.1')
+        elif sheet_name == '酒店':
+            # 以“入住日期”为主；若存在“入住时间”（含日期时间），补充到“入住日期.1”
+            if '入住日期' in original_df.columns:
+                df['入住日期'] = _parse_datetime_avoiding_time_only(original_df['入住日期'])
+                found_date_cols.append('入住日期')
+            if '入住时间' in original_df.columns:
+                dt_full = _parse_datetime_avoiding_time_only(original_df['入住时间'])
+                if dt_full.notna().any():
+                    df['入住日期.1'] = dt_full
+                    found_date_cols.append('入住时间→入住日期.1')
+        elif sheet_name == '火车票':
+            # “出发日期”是关键日期字段。旧逻辑会把“出发时间”(HH:MM)写入“出发日期”，导致日期被解析成“今天”。
+            if '出发日期' in original_df.columns:
+                df['出发日期'] = _parse_datetime_avoiding_time_only(original_df['出发日期'])
+                found_date_cols.append('出发日期')
+            elif '出发时间' in original_df.columns:
+                # 兜底：某些模板可能只提供“出发时间”(包含日期时间)
+                df['出发日期'] = _parse_datetime_avoiding_time_only(original_df['出发时间'])
+                found_date_cols.append('出发时间→出发日期')
+
+            # 如果“出发时间”存在且是完整日期时间，写入“出发日期.1”；若仅是时间字符串，则与“出发日期”组合
+            if '出发时间' in original_df.columns:
+                dt_full = _parse_datetime_avoiding_time_only(original_df['出发时间'])
+                if dt_full.notna().any():
+                    df['出发日期.1'] = dt_full
+                    found_date_cols.append('出发时间→出发日期.1')
+                elif '出发日期' in df.columns and df['出发日期'].notna().any():
+                    time_str = original_df['出发时间'].astype(str).str.strip()
+                    time_only_mask = time_str.str.match(r"^\\d{1,2}:\\d{2}(:\\d{2})?$", na=False)
+                    if time_only_mask.any():
+                        date_str = df['出发日期'].dt.strftime('%Y-%m-%d')
+                        combined = pd.to_datetime(date_str + ' ' + time_str, errors='coerce')
+                        df.loc[time_only_mask, '出发日期.1'] = combined.loc[time_only_mask]
+                        found_date_cols.append('出发日期+出发时间→出发日期.1')
+
         self.logger.info(f"[{sheet_name}] 找到的日期列: {found_date_cols}")
         
         # 统一差旅人员姓名字段
