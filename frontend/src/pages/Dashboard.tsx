@@ -24,12 +24,11 @@ import {
   ReloadOutlined,
   TeamOutlined,
   ProjectOutlined,
-  FileTextOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 import type { AnalysisResult, DepartmentStat, ProjectTop10 } from '@/types'
-import { analyzeExcel, exportPpt } from '@/services/api'
+import { analyzeExcel } from '@/services/api'
 import { useMonthContext } from '@/contexts/MonthContext'
 
 const { Title, Text } = Typography
@@ -38,7 +37,6 @@ const Dashboard = () => {
   const navigate = useNavigate()
   const [data, setData] = useState<AnalysisResult | null>(null)
   const [exporting, setExporting] = useState(false)
-  const [exportingPpt, setExportingPpt] = useState(false)
   const [loadingData, setLoadingData] = useState(false)
   const { selectedMonth, availableMonths, refreshMonths } = useMonthContext()
 
@@ -96,60 +94,6 @@ const Dashboard = () => {
       message.error(error.message || '导出失败')
     } finally {
       setExporting(false)
-    }
-  }
-
-  const handleExportPpt = async () => {
-    if (!data) {
-      message.warning('暂无数据可导出')
-      return
-    }
-
-    setExportingPpt(true)
-
-    try {
-      // 1. 捕获所有图表为 base64 图片
-      const charts = []
-
-      // 获取 ECharts 实例并导出图片
-      const chartRefs = [
-        { ref: departmentCostChartRef, title: '部门成本分布' },
-        { ref: projectCostChartRef, title: '项目成本排名（Top 20）' },
-        { ref: departmentHoursChartRef, title: '部门平均工时' },
-        { ref: deptHeadcountCostChartRef, title: '部门人数与成本关系' },
-        { ref: flightOverTypeChartRef, title: '机票超标类型分布' }
-      ]
-
-      for (const { ref, title } of chartRefs) {
-        if (ref.current) {
-          const echartInstance = ref.current.getEchartsInstance()
-          const imageBase64 = echartInstance.getDataURL({
-            type: 'png',
-            pixelRatio: 2,  // 高清图片
-            backgroundColor: '#fff'
-          })
-          charts.push({ title, image: imageBase64 })
-        }
-      }
-
-      // 2. 调用 API 导出 PPT
-      const blob = await exportPpt(data, charts)
-
-      // 3. 下载文件
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `CostMatrix分析报告_${selectedMonth}_${new Date().getTime()}.pptx`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-
-      message.success('PPT 导出成功！')
-    } catch (error: any) {
-      message.error(error.message || 'PPT 导出失败')
-    } finally {
-      setExportingPpt(false)
     }
   }
 
@@ -650,13 +594,6 @@ const Dashboard = () => {
             onClick={handleExport}
           >
             导出分析结果
-          </Button>
-          <Button
-            icon={<FileTextOutlined />}
-            loading={exportingPpt}
-            onClick={handleExportPpt}
-          >
-            导出 PPT
           </Button>
         </Space>
       </Space>
