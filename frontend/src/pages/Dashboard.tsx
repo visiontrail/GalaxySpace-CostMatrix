@@ -416,18 +416,18 @@ const Dashboard = () => {
           }
         })),
         label: {
-          show: (params: any) => {
+          show: true,
+          position: 'right',
+          formatter: (params: any) => {
             const dept = data.department_stats[params.dataIndex]
             const sortedByCost = [...data.department_stats].sort((a, b) => b.cost - a.cost)
             const sortedByHeadcount = [...data.department_stats].sort((a, b) => b.headcount - a.headcount)
             const topCostIndex = sortedByCost.findIndex(d => d.dept === dept.dept)
             const topHeadcountIndex = sortedByHeadcount.findIndex(d => d.dept === dept.dept)
-            return topCostIndex < 10 || topHeadcountIndex < 5
-          },
-          position: 'right',
-          formatter: (params: any) => {
-            const dept = data.department_stats[params.dataIndex]
-            return dept.dept
+            if (topCostIndex < 10 || topHeadcountIndex < 5) {
+              return dept.dept
+            }
+            return ''
           },
           fontSize: 10,
           color: '#333',
