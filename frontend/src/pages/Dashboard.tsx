@@ -353,7 +353,7 @@ const Dashboard = () => {
     },
     grid: {
       left: '3%',
-      right: '7%',
+      right: '15%',
       bottom: '3%',
       top: 50,
       containLabel: true
@@ -378,10 +378,56 @@ const Dashboard = () => {
     series: [
       {
         type: 'scatter',
-        symbolSize: 20,
-        data: data.department_stats.map(item => [item.headcount, item.cost]),
-        itemStyle: {
-          color: '#ee6666'
+        symbolSize: (data: any) => Math.max(10, Math.min(30, data[0] * 1.5)),
+        data: data.department_stats.map((item, index) => ({
+          value: [item.headcount, item.cost],
+          itemStyle: {
+            color: [
+              '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+              '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#1890ff',
+              '#52c41a', '#faad14', '#f5222d', '#13c2c2', '#722ed1'
+            ][index % 15]
+          }
+        })),
+        label: {
+          show: (params: any) => {
+            const dept = data.department_stats[params.dataIndex]
+            const sortedByCost = [...data.department_stats].sort((a, b) => b.cost - a.cost)
+            const sortedByHeadcount = [...data.department_stats].sort((a, b) => b.headcount - a.headcount)
+            const topCostIndex = sortedByCost.findIndex(d => d.dept === dept.dept)
+            const topHeadcountIndex = sortedByHeadcount.findIndex(d => d.dept === dept.dept)
+            return topCostIndex < 10 || topHeadcountIndex < 5
+          },
+          position: 'right',
+          formatter: (params: any) => {
+            const dept = data.department_stats[params.dataIndex]
+            return dept.dept
+          },
+          fontSize: 10,
+          color: '#333',
+          backgroundColor: 'rgba(255, 255, 255, 0.7)',
+          padding: [2, 4],
+          borderRadius: 3,
+          borderWidth: 1,
+          borderColor: '#ddd'
+        },
+        labelLayout: {
+          hideOverlap: true
+        },
+        emphasis: {
+          label: {
+            show: true,
+            fontSize: 12,
+            fontWeight: 'bold',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            padding: [3, 6]
+          },
+          itemStyle: {
+            borderColor: '#fff',
+            borderWidth: 2,
+            shadowBlur: 10,
+            shadowColor: 'rgba(0, 0, 0, 0.3)'
+          }
         }
       }
     ]
