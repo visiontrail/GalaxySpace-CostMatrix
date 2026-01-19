@@ -2412,14 +2412,28 @@ def delete_month_data(db: Session, month: str) -> dict:
     import os
     from pathlib import Path
 
-    # Get all uploads that contain data for this month
-    uploads_with_month = db.query(Upload).join(
+    # Get all uploads that contain data for this month from any table
+    # We need to check both attendance and travel expense tables
+    attendance_uploads = db.query(Upload.id).join(
         AttendanceRecord, Upload.id == AttendanceRecord.upload_id
     ).filter(
         text(f"strftime('%Y-%m', fact_attendance.date) = :month")
     ).params(month=month).distinct().all()
 
-    upload_ids = [u.id for u in uploads_with_month]
+    travel_uploads = db.query(Upload.id).join(
+        TravelExpense, Upload.id == TravelExpense.upload_id
+    ).filter(
+        text(f"strftime('%Y-%m', fact_travel_expense.date) = :month")
+    ).params(month=month).distinct().all()
+
+    # Combine upload IDs from both sources using set to avoid duplicates
+    upload_ids_set = set()
+    upload_ids_set.update([u.id for u in attendance_uploads])
+    upload_ids_set.update([u.id for u in travel_uploads])
+    upload_ids = list(upload_ids_set)
+
+    # Get the full Upload objects for later use
+    uploads_with_month = db.query(Upload).filter(Upload.id.in_(upload_ids)).all()
 
     if not upload_ids:
         return {

@@ -106,13 +106,24 @@ class DatabaseParser:
             for sheet_name, count_key, progress_value in expense_types:
                 if sheet_name in sheets_data:
                     self._update_progress(progress_value - 5, f"正在解析{sheet_name}数据...")
+                    self.logger.info(f"[{sheet_name}] 开始解析差旅数据")
+                    
                     expense_df = self.processor.clean_travel_data(sheet_name)
+                    
                     if not expense_df.empty:
+                        self.logger.info(f"[{sheet_name}] 清洗后数据: {len(expense_df)} 行")
+                        self.logger.info(f"[{sheet_name}] 数据列: {list(expense_df.columns)}")
+                        self.logger.info(f"[{sheet_name}] 前3行数据预览:")
+                        for idx in range(min(3, len(expense_df))):
+                            row_data = expense_df.iloc[idx].to_dict()
+                            self.logger.info(f"[{sheet_name}]   行{idx}: {row_data}")
+                        
                         # 如果差旅表中一级部门为空，尝试从考勤表中填充
                         if attendance_df is not None and '一级部门' in expense_df.columns:
                             # 对于一级部门为NaN的记录，从考勤表查找部门信息
                             mask = expense_df['一级部门'].isna()
                             if mask.any():
+                                self.logger.info(f"[{sheet_name}] 发现 {mask.sum()} 条记录部门信息为空，尝试从考勤表填充")
                                 expense_df.loc[mask, '一级部门'] = expense_df.loc[mask, '姓名'].map(person_dept_map)
 
                         count = batch_insert_travel_expenses(
@@ -121,6 +132,8 @@ class DatabaseParser:
                         stats[count_key] = count
                         self.logger.info(f"Inserted {count} {sheet_name} records")
                         self._update_progress(progress_value, f"✅ 已写入{sheet_name}数据: {count} 条")
+                    else:
+                        self.logger.warning(f"[{sheet_name}] 清洗后数据为空，跳过入库")
 
             stats["total_expenses"] = (
                 stats["flight_count"] + stats["hotel_count"] + stats["train_count"]

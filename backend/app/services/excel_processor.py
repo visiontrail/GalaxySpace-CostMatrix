@@ -48,6 +48,16 @@ class ExcelProcessor:
             sheet_names = ", ".join(all_sheets.keys())
             self.logger.info(f"Excel 读取完成（{sheet_names}），耗时 {elapsed:.2f}s")
             
+            # 输出每个 Sheet 的基本信息
+            for sheet_name, df in all_sheets.items():
+                self.logger.info(f"Sheet [{sheet_name}]: {len(df)} 行, {len(df.columns)} 列")
+                self.logger.info(f"  列名: {list(df.columns)}")
+                if len(df) > 0:
+                    self.logger.info(f"  前2行数据预览:")
+                    for idx in range(min(2, len(df))):
+                        row_data = df.iloc[idx].to_dict()
+                        self.logger.info(f"    行{idx}: {row_data}")
+            
             # 部分分析场景不需要 Workbook，仅在回写等场景按需加载
             if load_workbook_obj:
                 wb_start = time.perf_counter()
@@ -120,28 +130,56 @@ class ExcelProcessor:
 
         df = self.get_sheet(sheet_name)
         if df is None:
+            self.logger.warning(f"[{sheet_name}] Sheet 不存在")
             return pd.DataFrame()
-        
+
+        self.logger.info(f"[{sheet_name}] 开始清洗数据 - 原始列名: {list(df.columns)}")
+        self.logger.info(f"[{sheet_name}] 原始行数: {len(df)}")
+
         df = df.copy()
         
         # 处理金额字段
         amount_col = '授信金额' if '授信金额' in df.columns else '金额'
+        self.logger.info(f"[{sheet_name}] 金额列: {amount_col}")
         if amount_col in df.columns:
             df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
             # 将 NaN 填充为 0，但保留所有记录
             df[amount_col] = df[amount_col].fillna(0)
+            self.logger.info(f"[{sheet_name}] 金额列有效值数: {df[amount_col].notna().sum()}")
+        else:
+            self.logger.warning(f"[{sheet_name}] 未找到金额列（授信金额或金额）")
         
-        # 处理日期字段
-        date_cols = ['出发日期', '起飞日期', '入住日期', '订单日期']
-        for col in date_cols:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+        # 处理日期字段（映射多种可能的列名到标准列名）
+        date_col_mapping = {
+            '机票': [('起飞时间', '起飞日期'), ('起飞时间.1', '起飞日期.1')],
+            '酒店': [('入住时间', '入住日期'), ('入住日期', '入住日期')],
+            '火车票': [('出发时间', '出发日期'), ('出发日期', '出发日期')]
+        }
+        
+        found_date_cols = []
+        if sheet_name in date_col_mapping:
+            for source_col, target_col in date_col_mapping[sheet_name]:
+                if source_col in df.columns:
+                    df[target_col] = pd.to_datetime(df[source_col], errors='coerce')
+                    if source_col != target_col:
+                        found_date_cols.append(f"{source_col}→{target_col}")
+                    else:
+                        found_date_cols.append(source_col)
+        
+        self.logger.info(f"[{sheet_name}] 找到的日期列: {found_date_cols}")
         
         # 统一差旅人员姓名字段
+        name_cols = [col for col in ['差旅人员姓名', '预订人姓名'] if col in df.columns]
+        self.logger.info(f"[{sheet_name}] 找到的姓名列: {name_cols}")
         if '差旅人员姓名' in df.columns:
             df['姓名'] = df['差旅人员姓名']
         elif '预订人姓名' in df.columns:
             df['姓名'] = df['预订人姓名']
+        else:
+            self.logger.warning(f"[{sheet_name}] 未找到姓名列（差旅人员姓名或预订人姓名）")
+
+        self.logger.info(f"[{sheet_name}] 清洗后行数: {len(df)}")
+        self.logger.info(f"[{sheet_name}] 最终列名: {list(df.columns)}")
 
         if use_cache:
             self._travel_cache[sheet_name] = df
@@ -157,17 +195,25 @@ class ExcelProcessor:
 
         frames: List[pd.DataFrame] = []
         date_columns = {
-            '机票': '出发日期',
-            '酒店': '入住日期',
-            '火车票': '出发日期'
+            '机票': ['起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1'],
+            '酒店': ['入住日期', '入住时间'],
+            '火车票': ['出发日期', '出发时间']
         }
 
-        for sheet_name, date_col in date_columns.items():
+        for sheet_name, date_cols in date_columns.items():
             df = self.clean_travel_data(sheet_name)
-            if df.empty or date_col not in df.columns:
+            if df.empty:
+                continue
+            
+            date_col = None
+            for col in date_cols:
+                if col in df.columns:
+                    date_col = col
+                    break
+            
+            if not date_col:
                 continue
 
-            # 仅保留需要的字段，避免复制无关数据
             temp = df[['姓名', date_col]].copy()
             temp = temp[temp[date_col].notna()]
             if temp.empty:
@@ -235,6 +281,9 @@ class ExcelProcessor:
                 continue
             
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
+            date_cols = ['出发日期', '出发日期.1', '出发时间', '起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1', '入住日期', '入住时间']
+            date_col = next((col for col in date_cols if col in df.columns), None)
+            
             self.logger.info(f"   - 原始记录数: {original_count}")
             self.logger.info(f"   - 清洗后记录数: {len(df)}")
             self.logger.info(f"   - 金额列: {amount_col}")
@@ -261,7 +310,7 @@ class ExcelProcessor:
                     'amount': amount,
                     'type': sheet_name,
                     'person': row.get('姓名', ''),
-                    'date': row.get('出发日期', '')
+                    'date': row.get(date_col, '') if date_col else ''
                 })
                 record_count += 1
                 sheet_total_amount += amount
@@ -269,7 +318,7 @@ class ExcelProcessor:
                 # 输出前3条记录的详细信息
                 if record_count <= 3:
                     person = row.get('姓名', '未知')
-                    date_val = row.get('出发日期', '')
+                    date_val = row.get(date_col, '') if date_col else ''
                     # 安全的日期格式化
                     if pd.notna(date_val) and hasattr(date_val, 'strftime'):
                         date_str = date_val.strftime('%Y-%m-%d')
@@ -939,7 +988,8 @@ class ExcelProcessor:
                 continue
 
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
-            date_col = '出发日期' if '出发日期' in df.columns else '入住日期'
+            date_cols = ['出发日期', '出发日期.1', '出发时间', '起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1', '入住日期', '入住时间']
+            date_col = next((col for col in date_cols if col in df.columns), None)
 
             # 获取考勤数据用于部门信息（作为备用）
             attendance_df = self.clean_attendance_data()
@@ -1116,7 +1166,8 @@ class ExcelProcessor:
                 continue
 
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
-            date_col = '出发日期' if '出发日期' in df.columns else '入住日期'
+            date_cols = ['出发日期', '出发日期.1', '出发时间', '起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1', '入住日期', '入住时间']
+            date_col = next((col for col in date_cols if col in df.columns), None)
 
             for idx, row in df.iterrows():
                 project_str = row.get('项目', '')

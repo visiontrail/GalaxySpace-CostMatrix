@@ -22,7 +22,7 @@ engine = create_engine(
         "timeout": 30,
     },
     poolclass=StaticPool,
-    echo=settings.debug,
+    echo=False,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
