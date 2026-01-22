@@ -345,6 +345,7 @@ async def analyze_excel(
         # 计算总览数据
         total_cost = sum(item['total_cost'] for item in department_costs)
         avg_work_hours = attendance_summary.get('avg_work_hours', 0)
+        holiday_avg_work_hours = attendance_summary.get('holiday_avg_work_hours', 0)
         anomaly_count = len(anomalies)
         
         # 转换部门数据格式为前端期望的结构
@@ -390,6 +391,7 @@ async def analyze_excel(
             'summary': {
                 'total_cost': round(total_cost, 2),
                 'avg_work_hours': round(avg_work_hours, 2),
+                'holiday_avg_work_hours': round(holiday_avg_work_hours, 2),
                 'anomaly_count': anomaly_count,
                 'total_orders': order_stats.get('total', 0),
                 'order_breakdown': order_stats,

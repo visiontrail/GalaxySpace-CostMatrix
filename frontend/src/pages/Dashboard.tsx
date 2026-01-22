@@ -14,6 +14,7 @@ import {
   Typography,
   Divider,
   Spin,
+  Tooltip,
 } from 'antd'
 import {
   DollarOutlined,
@@ -24,6 +25,8 @@ import {
   ReloadOutlined,
   TeamOutlined,
   ProjectOutlined,
+  CalendarOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
@@ -119,7 +122,10 @@ const Dashboard = () => {
   if (loadingData || !data) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <Spin size="large" tip={`正在加载 ${selectedMonth} 数据...`} />
+        <Space direction="vertical" size="middle">
+          <Spin size="large" />
+          <Text type="secondary">正在加载 {selectedMonth} 数据...</Text>
+        </Space>
       </div>
     )
   }
@@ -620,6 +626,96 @@ const Dashboard = () => {
     }
   ]
 
+  // 异常记录表格列定义
+  const anomalyColumns = [
+    {
+      title: '日期',
+      dataIndex: 'date',
+      key: 'date',
+      width: 120,
+      fixed: 'left' as const,
+      sorter: (a: any, b: any) => a.date.localeCompare(b.date),
+      render: (date: string) => (
+        <Space>
+          <CalendarOutlined />
+          <Text>{date}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '姓名',
+      dataIndex: 'name',
+      key: 'name',
+      width: 120,
+      sorter: (a: any, b: any) => a.name.localeCompare(b.name),
+      render: (name: string) => (
+        <Space>
+          <UserOutlined />
+          <Text strong>{name}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '部门',
+      dataIndex: 'dept',
+      key: 'dept',
+      width: 150,
+      sorter: (a: any, b: any) => a.dept.localeCompare(b.dept),
+      render: (dept: string) => (
+        <Space>
+          <TeamOutlined />
+          <Text>{dept}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '异常类型',
+      dataIndex: 'type',
+      key: 'type',
+      width: 120,
+      sorter: (a: any, b: any) => a.type.localeCompare(b.type),
+      render: (type: string) => {
+        const colorMap: Record<string, string> = {
+          'A': 'red',
+          'Conflict': 'red',
+          'B': 'orange',
+          'Missing': 'orange',
+          'C': 'purple',
+          'Duplicate': 'purple',
+          'D': 'volcano',
+          'Invalid': 'volcano',
+        }
+        const displayType = type === 'A' ? '冲突' : type
+        return (
+          <Tag color={colorMap[type] || 'default'} icon={<WarningOutlined />}>
+            {displayType}
+          </Tag>
+        )
+      },
+    },
+    {
+      title: '考勤状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      render: (status?: string) => {
+        if (!status) return <Text type="secondary">-</Text>
+        return <Tag color="blue">{status}</Tag>
+      },
+    },
+    {
+      title: '详细说明',
+      dataIndex: 'detail',
+      key: 'detail',
+      ellipsis: true,
+      render: (detail: string) => (
+        <Tooltip title={detail}>
+          <Text>{detail}</Text>
+        </Tooltip>
+      ),
+    },
+  ]
+
   // 项目表格列
   const projectColumns = [
     {
@@ -737,7 +833,7 @@ const Dashboard = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card hoverable style={{ height: 120, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <Statistic
-              title="平均工时"
+              title="工作日平均工时"
               value={data.summary.avg_work_hours}
               precision={1}
               prefix={<ClockCircleOutlined />}
@@ -747,17 +843,15 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable onClick={() => navigate('/anomalies')} style={{ cursor: 'pointer', height: 120 }}>
+          <Card hoverable style={{ height: 120, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <Statistic
-              title="异常记录"
-              value={data.summary.anomaly_count}
-              prefix={<WarningOutlined />}
-              suffix="条"
-              valueStyle={{ color: '#cf1322' }}
+              title="节假日平均工时"
+              value={data.summary.holiday_avg_work_hours ?? 0}
+              precision={1}
+              prefix={<ClockCircleOutlined />}
+              suffix="小时"
+              valueStyle={{ color: '#722ed1' }}
             />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              点击查看详情
-            </Text>
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -938,6 +1032,26 @@ const Dashboard = () => {
           rowKey={(record) => record.code || '其他'}
           pagination={false}
           scroll={{ x: 600 }}
+          size="middle"
+        />
+      </Card>
+
+      {/* 异常记录表格 */}
+      <Card
+        title={<><WarningOutlined /> 异常记录详情</>}
+        style={{ marginBottom: 24 }}
+      >
+        <Table
+          dataSource={data.anomalies}
+          columns={anomalyColumns}
+          rowKey={(record) => `${record.date}-${record.name}-${record.dept}-${record.type}`}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条异常记录`,
+            pageSizeOptions: ['10', '20', '50', '100'],
+          }}
+          scroll={{ x: 1000 }}
           size="middle"
         />
       </Card>

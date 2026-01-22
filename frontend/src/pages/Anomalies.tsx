@@ -186,7 +186,7 @@ const Anomalies = () => {
             <Table
               dataSource={anomalies}
               columns={anomalyColumns}
-              rowKey={(record, index) => `${record.date}-${record.name}-${index}`}
+              rowKey={(record) => `${record.date}-${record.name}-${record.dept}-${record.type}`}
               pagination={{
                 pageSize: 20,
                 showSizeChanger: true,

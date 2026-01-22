@@ -6,7 +6,8 @@
 // ============ 汇总统计 ============
 export interface Summary {
   total_cost: number        // 总成本
-  avg_work_hours: number    // 平均工时
+  avg_work_hours: number    // 工作日平均工时
+  holiday_avg_work_hours?: number  // 节假日平均工时
   anomaly_count: number     // 异常数量
   total_orders?: number     // 订单总数
   order_breakdown?: {
@@ -174,7 +175,6 @@ export interface DepartmentDetailMetrics {
   weekend_work_days: number
   workday_attendance_days: number
   avg_work_hours: number
-  holiday_avg_work_hours: number
   holiday_avg_work_hours: number
 
   travel_days: number

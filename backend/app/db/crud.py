@@ -1386,11 +1386,21 @@ def get_dashboard_summary_by_month(db: Session, month: str) -> dict:
         AttendanceRecord.work_hours != 0
     ).first()
 
+    holiday_avg_hours_result = db.query(
+        func.avg(case((AttendanceRecord.status.like('%公休日上班%'), AttendanceRecord.work_hours), else_=None)).label('holiday_avg_hours')
+    ).filter(
+        AttendanceRecord.upload_id.in_(upload_ids),
+        AttendanceRecord.date >= month_start,
+        AttendanceRecord.date <= month_end,
+        AttendanceRecord.work_hours != 0
+    ).first()
+
     return {
         'total_cost': float(total_cost_result.total_cost or 0),
         'total_orders': total_cost_result.total_orders or 0,
         'over_standard_count': total_cost_result.over_standard_count or 0,
-        'avg_work_hours': float(avg_hours_result.avg_hours or 0)
+        'avg_work_hours': float(avg_hours_result.avg_hours or 0),
+        'holiday_avg_work_hours': float(holiday_avg_hours_result.holiday_avg_hours or 0)
     }
 
 

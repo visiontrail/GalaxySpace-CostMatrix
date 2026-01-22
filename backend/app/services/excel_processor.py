@@ -971,25 +971,41 @@ class ExcelProcessor:
         df = self.clean_attendance_data()
         if df.empty:
             return {}
-        
+
         total_records = len(df)
         total_persons = df['姓名'].nunique() if '姓名' in df.columns else 0
-        
+
         status_distribution = {}
         if '当日状态判断' in df.columns:
             status_distribution = df['当日状态判断'].value_counts().to_dict()
-        
+
+        # 计算工作日平均工时
         avg_work_hours = 0
-        if '工时' in df.columns:
-            valid_hours = df[df['工时'] != 0]['工时'].dropna()
+        if '工时' in df.columns and '当日状态判断' in df.columns:
+            workday_data = df[df['当日状态判断'] == '上班']
+            valid_hours = workday_data[workday_data['工时'] != 0]['工时'].dropna()
             if not valid_hours.empty:
                 avg_work_hours = float(valid_hours.mean())
-        
+                self.logger.info(f"全公司工作日平均工时: {avg_work_hours:.2f}小时 (基于{len(valid_hours)}条记录)")
+
+        # 计算节假日平均工时
+        holiday_avg_work_hours = 0
+        if '工时' in df.columns and '当日状态判断' in df.columns:
+            # 筛选节假日/公休日/公休日上班的记录
+            holiday_statuses = ['公休日', '公休日上班', '节假日']
+            holiday_df = df[df['当日状态判断'].isin(holiday_statuses)]
+            # 过滤掉工时为0的记录
+            holiday_valid_hours = holiday_df[holiday_df['工时'] != 0]['工时'].dropna()
+            if not holiday_valid_hours.empty:
+                holiday_avg_work_hours = float(holiday_valid_hours.mean())
+                self.logger.info(f"全公司节假日平均工时: {holiday_avg_work_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+
         return {
             'total_records': total_records,
             'total_persons': total_persons,
             'status_distribution': status_distribution,
-            'avg_work_hours': round(avg_work_hours, 2)
+            'avg_work_hours': round(avg_work_hours, 2),
+            'holiday_avg_work_hours': round(holiday_avg_work_hours, 2)
         }
     
     def write_analysis_results(self, results: Dict[str, Any], output_path: Optional[str] = None) -> str:
