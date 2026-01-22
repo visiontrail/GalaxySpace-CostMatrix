@@ -353,6 +353,7 @@ async def analyze_excel(
                 'dept': item['department'],
                 'cost': item['total_cost'],
                 'avg_hours': item.get('avg_hours', 0),
+                'holiday_avg_hours': item.get('holiday_avg_hours', 0),
                 'headcount': item.get('person_count', 0)
             }
             for item in department_costs

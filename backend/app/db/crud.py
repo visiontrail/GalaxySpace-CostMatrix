@@ -1821,7 +1821,8 @@ def get_department_list_from_db(
     result = db.query(
         Department.name.label('name'),
         func.count(func.distinct(Employee.id)).label('person_count'),
-        func.avg(AttendanceRecord.work_hours).label('avg_work_hours')
+        func.avg(AttendanceRecord.work_hours).label('avg_work_hours'),
+        func.avg(case((AttendanceRecord.status.like('%公休日上班%'), AttendanceRecord.work_hours), else_=None)).label('holiday_avg_hours')
     ).join(
         Employee, dept_join_map[level]
     ).join(
@@ -1875,7 +1876,8 @@ def get_department_list_from_db(
             'name': dept_name,
             'person_count': row.person_count or 0,
             'total_cost': total_cost,
-            'avg_work_hours': float(row.avg_work_hours or 0)
+            'avg_work_hours': float(row.avg_work_hours or 0),
+            'holiday_avg_work_hours': float(row.holiday_avg_hours or 0)
         })
 
     return departments
@@ -1976,6 +1978,23 @@ def get_department_details_from_db(
     ).join(
         Department, dept_join_map[level]
     ).filter(and_(*weekend_where)).scalar() or 0
+
+    # Get holiday average work hours (公休日上班)
+    holiday_avg_work_hours = db.query(
+        func.avg(AttendanceRecord.work_hours)
+    ).select_from(
+        AttendanceRecord
+    ).join(
+        Employee, AttendanceRecord.employee_id == Employee.id
+    ).join(
+        Department, dept_join_map[level]
+    ).filter(
+        Department.name == department_name,
+        AttendanceRecord.status.like('%公休日上班%'),
+        AttendanceRecord.upload_id.in_(upload_ids),
+        AttendanceRecord.work_hours.isnot(None),
+        AttendanceRecord.work_hours != 0
+    ).scalar() or 0
 
     # Get late after 19:30 count
     late_count = db.query(func.count(func.distinct(Employee.id))).select_from(
@@ -2152,6 +2171,7 @@ def get_department_details_from_db(
         'department_level': f'{level}级部门',
         'parent_department': '',
         'avg_work_hours': float(result.avg_work_hours or 0),
+        'holiday_avg_work_hours': float(holiday_avg_work_hours or 0),
         'workday_attendance_days': workday_attendance,
         'weekend_work_days': weekend_work_days,
         'weekend_attendance_count': weekend_attendance_count,
@@ -2373,6 +2393,7 @@ def get_level1_department_statistics_from_db(
         d.name as name,
         COUNT(DISTINCT e.id) as person_count,
         AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as avg_work_hours,
+        AVG(CASE WHEN a.status = '公休日上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as holiday_avg_work_hours,
         COUNT(DISTINCT CASE WHEN a.status = '上班' THEN DATE(a.date) END) as workday_attendance_days,
         COUNT(DISTINCT CASE WHEN a.status = '公休日上班' THEN DATE(a.date) END) as weekend_work_days,
         COUNT(CASE WHEN a.status IN ('上班', '出差') AND strftime('%w', a.date) IN ('0', '6') THEN 1 END) as weekend_attendance_count,
@@ -2402,6 +2423,7 @@ def get_level1_department_statistics_from_db(
             'name': row.name,
             'person_count': row.person_count or 0,
             'avg_work_hours': round(float(row.avg_work_hours or 0), 2),
+            'holiday_avg_work_hours': round(float(row.holiday_avg_work_hours or 0), 2),
             'workday_attendance_days': row.workday_attendance_days or 0,
             'weekend_work_days': row.weekend_work_days or 0,
             'weekend_attendance_count': row.weekend_attendance_count or 0,

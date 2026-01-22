@@ -406,6 +406,7 @@ export const getLevel1DepartmentStatistics = async (
     name: string
     person_count: number
     avg_work_hours: number
+    holiday_avg_work_hours: number
     workday_attendance_days: number
     weekend_work_days: number
     weekend_attendance_count: number
@@ -434,6 +435,7 @@ export const getLevel1DepartmentStatistics = async (
       name: string
       person_count: number
       avg_work_hours: number
+      holiday_avg_work_hours: number
       workday_attendance_days: number
       weekend_work_days: number
       weekend_attendance_count: number

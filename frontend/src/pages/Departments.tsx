@@ -269,11 +269,18 @@ const Departments = () => {
         sorter: (a: DepartmentListItem, b: DepartmentListItem) => a.total_cost - b.total_cost,
       },
       {
-        title: '平均工时 (小时)',
+        title: '工作日平均工时 (小时)',
         dataIndex: 'avg_work_hours',
         key: 'avg_work_hours',
         render: (value: number) => `${value.toFixed(1)} h`,
         sorter: (a: DepartmentListItem, b: DepartmentListItem) => a.avg_work_hours - b.avg_work_hours,
+      },
+      {
+        title: '节假日平均工时 (小时)',
+        dataIndex: 'holiday_avg_work_hours',
+        key: 'holiday_avg_work_hours',
+        render: (value: number) => value > 0 ? `${value.toFixed(1)} h` : '-',
+        sorter: (a: DepartmentListItem, b: DepartmentListItem) => a.holiday_avg_work_hours - b.holiday_avg_work_hours,
       },
       {
         title: '操作',
@@ -399,7 +406,8 @@ const Departments = () => {
       { title: '请假天数', dataIndex: 'leave_days', key: 'leave_days', render: (v: number) => `${v}天` },
       { title: '异常天数', dataIndex: 'anomaly_days', key: 'anomaly_days', render: (v: number) => `${v}天` },
       { title: '晚上7:30后下班人数', dataIndex: 'late_after_1930_count', key: 'late_after_1930_count', render: (v: number) => `${v}人` },
-      { title: '平均工时', dataIndex: 'avg_work_hours', key: 'avg_work_hours', render: (v: number) => `${v.toFixed(1)}h` },
+      { title: '工作日平均工时', dataIndex: 'avg_work_hours', key: 'avg_work_hours', render: (v: number) => `${v.toFixed(1)}h` },
+      { title: '节假日平均工时', dataIndex: 'holiday_avg_work_hours', key: 'holiday_avg_work_hours', render: (v: number) => v > 0 ? `${v.toFixed(1)}h` : '-' },
       { title: '总成本', dataIndex: 'total_cost', key: 'total_cost', render: (v: number) => `¥${v.toLocaleString()}` },
     ]
 
@@ -576,6 +584,7 @@ const Departments = () => {
             <Descriptions.Item label="部门层级">{selectedDepartment.department_level}</Descriptions.Item>
             <Descriptions.Item label="父部门">{selectedDepartment.parent_department || '-'}</Descriptions.Item>
             <Descriptions.Item label="工作日平均工时">{selectedDepartment.avg_work_hours} 小时</Descriptions.Item>
+            <Descriptions.Item label="节假日平均工时">{selectedDepartment.holiday_avg_work_hours > 0 ? `${selectedDepartment.holiday_avg_work_hours} 小时` : '-'}</Descriptions.Item>
           </Descriptions>
 
           <Divider />

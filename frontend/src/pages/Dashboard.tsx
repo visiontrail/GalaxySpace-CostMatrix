@@ -584,12 +584,20 @@ const Dashboard = () => {
       )
     },
     {
-      title: '平均工时 (小时)',
+      title: '工作日平均工时 (小时)',
       dataIndex: 'avg_hours',
       key: 'avg_hours',
-      width: 150,
+      width: 180,
       sorter: (a: DepartmentStat, b: DepartmentStat) => a.avg_hours - b.avg_hours,
       render: (value: number) => `${value.toFixed(1)} h`
+    },
+    {
+      title: '节假日平均工时 (小时)',
+      dataIndex: 'holiday_avg_hours',
+      key: 'holiday_avg_hours',
+      width: 180,
+      sorter: (a: DepartmentStat, b: DepartmentStat) => a.holiday_avg_hours - b.holiday_avg_hours,
+      render: (value: number) => value > 0 ? `${value.toFixed(1)} h` : '-'
     },
     {
       title: '人数（产生成本人员）',

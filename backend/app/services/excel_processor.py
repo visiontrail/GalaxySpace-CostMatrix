@@ -818,15 +818,43 @@ class ExcelProcessor:
                     continue
                 dept_data = attendance_df[attendance_df['一级部门'] == dept]
                 avg_hours = 0
-                if '工时' in dept_data.columns:
-                    valid_hours = dept_data[dept_data['工时'] != 0]['工时'].dropna()
+                holiday_avg_hours = 0
+                if '工时' in dept_data.columns and '当日状态判断' in dept_data.columns:
+                    # 工作日平均工时计算
+                    workday_data = dept_data[dept_data['当日状态判断'] == '上班']
+                    self.logger.info(f"  [{dept}] 工作日('上班')记录数: {len(workday_data)}")
+                    valid_hours = workday_data[workday_data['工时'] != 0]['工时'].dropna()
+                    self.logger.info(f"  [{dept}] 工作日有效工时记录(工时!=0且非NaN): {len(valid_hours)}")
                     if not valid_hours.empty:
                         avg_hours = float(valid_hours.mean())
+                        self.logger.info(f"  [{dept}] 工作日平均工时: {avg_hours:.2f}小时")
                     if pd.isna(avg_hours):
                         avg_hours = 0
+                        self.logger.info(f"  [{dept}] 工作日平均工时为NaN，设为0")
+
+                    # 节假日平均工时计算（公休日上班）
+                    holiday_data = dept_data[dept_data['当日状态判断'] == '公休日上班']
+                    self.logger.info(f"  [{dept}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+                    if len(holiday_data) > 0:
+                        self.logger.info(f"  [{dept}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                        self.logger.info(f"  [{dept}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                        self.logger.info(f"  [{dept}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+                    holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                    self.logger.info(f"  [{dept}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+                    if not holiday_valid_hours.empty:
+                        holiday_avg_hours = float(holiday_valid_hours.mean())
+                        self.logger.info(f"  [{dept}] 节假日平均工时: {holiday_avg_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                        self.logger.info(f"  [{dept}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+                    else:
+                        holiday_avg_hours = 0
+                        self.logger.warning(f"  [{dept}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
+                    if pd.isna(holiday_avg_hours):
+                        holiday_avg_hours = 0
+                        self.logger.warning(f"  [{dept}] ⚠️  节假日平均工时为NaN，设为0")
                 person_count = dept_data['姓名'].nunique() if '姓名' in dept_data.columns else 0
                 dept_attendance_stats[dept] = {
                     'avg_hours': float(avg_hours),
+                    'holiday_avg_hours': float(holiday_avg_hours),
                     'person_count': int(person_count)
                 }
         
@@ -868,7 +896,7 @@ class ExcelProcessor:
                     dept = str(dept).strip()
                 
                 if dept not in dept_costs:
-                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
+                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'holiday_avg_hours': 0, 'person_count': 0})
                     dept_costs[dept] = {
                         'department': dept,
                         'total_cost': 0,
@@ -876,6 +904,7 @@ class ExcelProcessor:
                         'hotel_cost': 0,
                         'train_cost': 0,
                         'avg_hours': stats['avg_hours'],
+                        'holiday_avg_hours': stats['holiday_avg_hours'],
                         'person_count': stats['person_count']
                     }
                 
@@ -1409,12 +1438,29 @@ class ExcelProcessor:
             # 计算人数
             person_count = dept_data['姓名'].nunique() if '姓名' in dept_data.columns else 0
 
-            # 计算平均工时
             avg_hours = 0
-            if '工时' in dept_data.columns:
-                valid_hours = dept_data[dept_data['工时'] != 0]['工时'].dropna()
+            if '工时' in dept_data.columns and '当日状态判断' in dept_data.columns:
+                valid_hours = dept_data[(dept_data['当日状态判断'] == '上班') & (dept_data['工时'] != 0)]['工时'].dropna()
                 if not valid_hours.empty:
                     avg_hours = float(valid_hours.mean())
+
+            holiday_avg_hours = 0
+            if '工时' in dept_data.columns and '当日状态判断' in dept_data.columns:
+                # 节假日平均工时计算（公休日上班）
+                holiday_data = dept_data[dept_data['当日状态判断'] == '公休日上班']
+                self.logger.info(f"[部门列表-{dept}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+                if len(holiday_data) > 0:
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+                holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                self.logger.info(f"[部门列表-{dept}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+                if not holiday_valid_hours.empty:
+                    holiday_avg_hours = float(holiday_valid_hours.mean())
+                    self.logger.info(f"[部门列表-{dept}] 节假日平均工时: {holiday_avg_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+                else:
+                    self.logger.warning(f"[部门列表-{dept}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
 
             # 获取成本
             cost_info = dept_costs.get(dept, {'total_cost': 0, 'flight_cost': 0, 'hotel_cost': 0, 'train_cost': 0})
@@ -1425,7 +1471,8 @@ class ExcelProcessor:
                 'parent': parent,
                 'person_count': int(person_count),
                 'total_cost': float(cost_info['total_cost']),
-                'avg_work_hours': round(avg_hours, 2)
+                'avg_work_hours': round(avg_hours, 2),
+                'holiday_avg_work_hours': round(holiday_avg_hours, 2)
             })
 
         # 按成本降序排序
@@ -1553,12 +1600,34 @@ class ExcelProcessor:
         if '当日状态判断' in dept_df.columns:
             workday_attendance_days = int(dept_df[dept_df['当日状态判断'] == '上班'].shape[0])
 
-        # 4. 工作日平均工时
         avg_work_hours = 0
-        if '工时' in dept_df.columns:
-            valid_hours = dept_df[(dept_df['当日状态判断'] == '上班') & (dept_df['工时'] != 0)]['工时'].dropna()
+        holiday_avg_work_hours = 0
+        if '工时' in dept_df.columns and '当日状态判断' in dept_df.columns:
+            # 工作日平均工时计算
+            workday_data = dept_df[dept_df['当日状态判断'] == '上班']
+            self.logger.info(f"[部门详情-{department_name}] 工作日('上班')记录数: {len(workday_data)}")
+            valid_hours = workday_data[workday_data['工时'] != 0]['工时'].dropna()
+            self.logger.info(f"[部门详情-{department_name}] 工作日有效工时记录(工时!=0且非NaN): {len(valid_hours)}")
             if not valid_hours.empty:
                 avg_work_hours = float(valid_hours.mean())
+                self.logger.info(f"[部门详情-{department_name}] 工作日平均工时: {avg_work_hours:.2f}小时")
+
+            # 节假日平均工时计算（公休日上班）
+            holiday_data = dept_df[dept_df['当日状态判断'] == '公休日上班']
+            self.logger.info(f"[部门详情-{department_name}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+            if len(holiday_data) > 0:
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+            holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+            self.logger.info(f"[部门详情-{department_name}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+            if not holiday_valid_hours.empty:
+                holiday_avg_work_hours = float(holiday_valid_hours.mean())
+                self.logger.info(f"[部门详情-{department_name}] 节假日平均工时: {holiday_avg_work_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+            else:
+                holiday_avg_work_hours = 0
+                self.logger.warning(f"[部门详情-{department_name}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
 
         # 5. 出差天数
         travel_days = 0
@@ -1621,14 +1690,12 @@ class ExcelProcessor:
                         'detail': row['最晚打卡时间']
                     })
 
-        # 13. 最长工时排行榜（按平均工时排名）
+        # 13. 最长工时排行榜（按平均工时排名，工作日）
         longest_hours_ranking = []
-        if '工时' in dept_df.columns and '姓名' in dept_df.columns:
-            # 先按人员分组计算平均工时，排除工时为0的记录
-            person_avg_hours = dept_df[dept_df['工时'].notna() & (dept_df['工时'] != 0)].groupby('姓名')['工时'].mean()
-            # 按平均工时降序排列
+        if '工时' in dept_df.columns and '姓名' in dept_df.columns and '当日状态判断' in dept_df.columns:
+            workday_df = dept_df[dept_df['当日状态判断'] == '上班']
+            person_avg_hours = workday_df[workday_df['工时'].notna() & (workday_df['工时'] != 0)].groupby('姓名')['工时'].mean()
             person_avg_hours = person_avg_hours.sort_values(ascending=False)
-            # 取前10名
             for name, avg_hours in person_avg_hours.head(10).items():
                 longest_hours_ranking.append({
                     'name': name,
@@ -1644,6 +1711,7 @@ class ExcelProcessor:
             'weekend_work_days': weekend_work_days,
             'workday_attendance_days': workday_attendance_days,
             'avg_work_hours': round(avg_work_hours, 2),
+            'holiday_avg_work_hours': round(holiday_avg_work_hours, 2),
             'travel_days': travel_days,
             'leave_days': leave_days,
             'anomaly_days': anomaly_days,
@@ -1702,10 +1770,10 @@ class ExcelProcessor:
                     for name, count in travel_counts.items()
                 ]
 
-        # 4. 平均工时排行榜（按人，在整个一级部门范围内）
         avg_hours_ranking = []
-        if '工时' in level1_df.columns and '姓名' in level1_df.columns:
-            person_avg_hours = level1_df[level1_df['工时'].notna() & (level1_df['工时'] != 0)].groupby('姓名')['工时'].mean()
+        if '工时' in level1_df.columns and '姓名' in level1_df.columns and '当日状态判断' in level1_df.columns:
+            workday_df = level1_df[level1_df['当日状态判断'] == '上班']
+            person_avg_hours = workday_df[workday_df['工时'].notna() & (workday_df['工时'] != 0)].groupby('姓名')['工时'].mean()
             person_avg_hours = person_avg_hours.sort_values(ascending=False)
             for name, avg_hours in person_avg_hours.head(10).items():
                 avg_hours_ranking.append({
@@ -1727,10 +1795,27 @@ class ExcelProcessor:
 
                 # 计算平均工时
                 avg_hours = 0
-                if '工时' in l2_df.columns:
+                holiday_avg_hours = 0
+                if '工时' in l2_df.columns and '当日状态判断' in l2_df.columns:
                     valid_hours = l2_df[(l2_df['当日状态判断'] == '上班') & (l2_df['工时'] != 0)]['工时'].dropna()
                     if not valid_hours.empty:
                         avg_hours = float(valid_hours.mean())
+
+                    # 节假日平均工时计算（公休日上班）
+                    holiday_data = l2_df[l2_df['当日状态判断'] == '公休日上班']
+                    self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+                    if len(holiday_data) > 0:
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+                    holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                    self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+                    if not holiday_valid_hours.empty:
+                        holiday_avg_hours = float(holiday_valid_hours.mean())
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日平均工时: {holiday_avg_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+                    else:
+                        self.logger.warning(f"[一级部门统计-{level1_name}/{l2_dept}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
 
                 # 工作日出勤天数
                 workday_attendance_days = 0
@@ -1777,6 +1862,7 @@ class ExcelProcessor:
                     'name': l2_dept,
                     'person_count': person_count,
                     'avg_work_hours': round(avg_hours, 2),
+                    'holiday_avg_work_hours': round(holiday_avg_hours, 2),
                     'workday_attendance_days': workday_attendance_days,
                     'weekend_work_days': weekend_work_days,
                     'weekend_attendance_count': weekend_attendance_count,
