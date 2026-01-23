@@ -168,7 +168,7 @@ export interface MonthContextValue {
   selectedMonths: string[]
   pendingMonths: string[]
   setPendingMonths: (months: string[]) => void
-  applySelectedMonths: () => void
+  applySelectedMonths: (months?: string[]) => void
   refreshMonths: () => Promise<void>
   deleteMonth: (month: string) => Promise<void>
 }

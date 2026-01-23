@@ -67,12 +67,16 @@ export const MonthProvider: React.FC<MonthProviderProps> = ({ children }) => {
     setPendingMonthsState(months)
   }, [])
 
-  const applySelectedMonths = useCallback(() => {
+  const applySelectedMonths = useCallback((months?: string[]) => {
+    const targetMonths = normalizeSelection(
+      months ?? pendingMonths,
+      availableMonths
+    )
     setSelectedMonths((prev) => {
-      if (isSameSelection(prev, pendingMonths)) return prev
-      return [...pendingMonths]
+      if (isSameSelection(prev, targetMonths)) return prev
+      return [...targetMonths]
     })
-  }, [isSameSelection, pendingMonths])
+  }, [availableMonths, isSameSelection, normalizeSelection, pendingMonths])
 
   const deleteMonth = useCallback(async (month: string) => {
     Modal.confirm({

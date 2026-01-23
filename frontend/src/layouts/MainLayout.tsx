@@ -125,7 +125,9 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
 
   const handleToggleMonth = (month: string) => {
     if (!multiSelectMode) {
-      setPendingMonths(sortByAvailable([month]))
+      const next = sortByAvailable([month])
+      setPendingMonths(next)
+      applySelectedMonths(next)
       return
     }
 
@@ -158,6 +160,7 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
   }
 
   const handleConfirmSelection = () => {
+    if (!multiSelectMode) return
     applySelectedMonths()
     if (hasPendingChanges) {
       message.success('已应用所选月份')
@@ -234,7 +237,7 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
                 type="primary"
                 size="small"
                 onClick={handleConfirmSelection}
-                disabled={!hasPendingChanges}
+                disabled={!multiSelectMode || !hasPendingChanges}
               >
                 确认
               </Button>
