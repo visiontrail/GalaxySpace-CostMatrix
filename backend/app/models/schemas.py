@@ -22,9 +22,9 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     """用户更新请求"""
-    password: str | None = Field(None, min_length=6, max_length=128)
-    is_admin: bool | None = None
-    is_active: bool | None = None
+    password: Optional[str] = Field(None, min_length=6, max_length=128)
+    is_admin: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 class LoginRequest(BaseModel):
