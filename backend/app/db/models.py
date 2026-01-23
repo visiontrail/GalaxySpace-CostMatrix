@@ -11,6 +11,31 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    """System user for authentication"""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=text("(DATETIME('now'))"),
+    )
+
+    __table_args__ = (
+        Index("idx_users_username", "username", unique=True),
+        Index("idx_users_admin", "is_admin"),
+    )
+
+
 class Upload(Base):
     __tablename__ = "uploads"
 

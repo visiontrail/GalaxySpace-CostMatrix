@@ -1,10 +1,12 @@
 """
 应用配置模块
 """
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pathlib import Path
 from typing import List
 import os
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -12,6 +14,9 @@ DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:8180",
     "http://127.0.0.1:8180",
 ]
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_INITIAL_PASSWORD_FILE = BASE_DIR.parent / "config" / "initial_admin_password.txt"
 
 
 class Settings(BaseSettings):
@@ -30,6 +35,13 @@ class Settings(BaseSettings):
 
     # CORS 配置
     allowed_origins: List[str] = DEFAULT_ALLOWED_ORIGINS.copy()
+
+    # 认证配置
+    secret_key: str = "change-me-in-env"
+    access_token_expire_minutes: int = 24 * 60  # 24 小时
+    jwt_algorithm: str = "HS256"
+    default_admin_username: str = "admin"
+    initial_admin_password_file: str = str(DEFAULT_INITIAL_PASSWORD_FILE)
 
     # 文件上传配置
     upload_dir: str = "./uploads"

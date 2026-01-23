@@ -16,7 +16,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.routes import router
-from app.db.database import init_db
+from app.db.database import init_db, SessionLocal
+from app.services.auth_service import ensure_initial_admin
 
 app = FastAPI(
     title=settings.app_name,
@@ -44,6 +45,10 @@ async def startup_event():
 
     cache_dir = Path(settings.upload_dir) / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # 确保默认管理员账号存在
+    with SessionLocal() as db:
+        ensure_initial_admin(db)
 
 
 @app.get("/")

@@ -2,6 +2,26 @@
 
 # CostMatrix 一键启动脚本
 
+REINSTALL_PY=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reinstall-py-deps|-r)
+      REINSTALL_PY=true
+      shift
+      ;;
+    -h|--help)
+      echo "用法: $0 [--reinstall-py-deps|-r]"
+      exit 0
+      ;;
+    *)
+      echo "未知参数: $1"
+      echo "用法: $0 [--reinstall-py-deps|-r]"
+      exit 1
+      ;;
+  esac
+done
+
 echo "🚀 Starting CostMatrix..."
 
 # 检查是否安装了 Python 和 Node.js
@@ -24,7 +44,11 @@ fi
 source venv/bin/activate
 
 # 安装依赖
-if [ ! -f "venv/.installed" ]; then
+if [ "$REINSTALL_PY" = true ]; then
+    echo "重新安装 Python 依赖..."
+    pip install --upgrade --force-reinstall -r requirements.txt
+    touch venv/.installed
+elif [ ! -f "venv/.installed" ]; then
     echo "安装 Python 依赖..."
     pip install -r requirements.txt
     touch venv/.installed
@@ -66,5 +90,4 @@ echo "按 Ctrl+C 停止服务"
 # 等待用户中断
 trap "echo ''; echo '🛑 停止服务...'; kill $BACKEND_PID $FRONTEND_PID; exit" INT
 wait
-
 

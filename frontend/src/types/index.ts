@@ -3,6 +3,37 @@
  * 完全对应后端 POST /api/analyze 的返回结构
  */
 
+// ============ 用户与认证 ============
+export interface UserInfo {
+  username: string
+  is_admin: boolean
+  created_at?: string
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user: UserInfo
+}
+
+export interface CreateUserPayload {
+  username: string
+  password: string
+  is_admin?: boolean
+}
+
+export interface UpdateUserPayload {
+  password?: string
+  is_admin?: boolean
+  is_active?: boolean
+}
+
+export interface ChangePasswordPayload {
+  current_password: string
+  new_password: string
+  confirm_password: string
+}
+
 // ============ 汇总统计 ============
 export interface Summary {
   total_cost: number        // 总成本

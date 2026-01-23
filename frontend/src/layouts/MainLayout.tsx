@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Layout, Menu, Typography, Button, Space, Empty } from 'antd'
+import { Layout, Menu, Typography, Button, Space, Empty, Tag, Modal, Form, Input, message } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DeleteOutlined } from '@ant-design/icons'
+import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DeleteOutlined, TeamOutlined, UserOutlined, LogoutOutlined } from '@ant-design/icons'
 import type { MonthContextValue } from '@/types'
 import { MonthProvider, useMonthContext } from '@/contexts/MonthContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { changePassword } from '@/services/api'
 
 const { Header, Content, Footer, Sider } = Layout
 const { Title } = Typography
@@ -12,19 +14,32 @@ const MainLayout = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const { user, logout } = useAuth()
 
-  const menuItems = [
-    {
-      key: '/',
-      icon: <DashboardOutlined />,
-      label: '数据看板',
-    },
-    {
-      key: '/upload',
-      icon: <UploadOutlined />,
-      label: '文件上传',
-    },
-  ]
+  const menuItems = useMemo(() => {
+    const items = [
+      {
+        key: '/',
+        icon: <DashboardOutlined />,
+        label: '数据看板',
+      },
+      {
+        key: '/upload',
+        icon: <UploadOutlined />,
+        label: '文件上传',
+      },
+    ]
+
+    if (user?.is_admin) {
+      items.push({
+        key: '/users',
+        icon: <TeamOutlined />,
+        label: '用户管理',
+      })
+    }
+
+    return items
+  }, [user?.is_admin])
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key)
@@ -43,6 +58,11 @@ const MainLayout = () => {
         handleMenuClick={handleMenuClick}
         navigate={navigate}
         location={location}
+        user={user}
+        onLogout={() => {
+          logout()
+          navigate('/login')
+        }}
       />
     </MonthProvider>
   )
@@ -55,6 +75,8 @@ interface MainLayoutContentProps {
   handleMenuClick: (info: { key: string }) => void
   navigate: any
   location: any
+  user: any
+  onLogout: () => void
 }
 
 const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
@@ -63,8 +85,13 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
   menuItems,
   handleMenuClick,
   location,
+  user,
+  onLogout,
 }) => {
   const { availableMonths, selectedMonth, selectMonth, refreshMonths, deleteMonth } = useMonthContext()
+  const [pwdModalOpen, setPwdModalOpen] = useState(false)
+  const [changingPwd, setChangingPwd] = useState(false)
+  const [form] = Form.useForm()
 
   useEffect(() => {
     refreshMonths()
@@ -106,6 +133,22 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
       </div>
     ),
   }))
+
+  const handlePasswordChange = async () => {
+    try {
+      const values = await form.validateFields()
+      setChangingPwd(true)
+      await changePassword(values)
+      message.success('密码修改成功')
+      setPwdModalOpen(false)
+      form.resetFields()
+    } catch (error: any) {
+      if (error?.errorFields) return
+      message.error(error?.message || '修改密码失败')
+    } finally {
+      setChangingPwd(false)
+    }
+  }
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -193,6 +236,25 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
             onClick={handleMenuClick}
             style={{ flex: 1, minWidth: 0 }}
           />
+          <Space align="center" size={12} style={{ color: 'white', marginLeft: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <UserOutlined />
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                <span style={{ color: 'white', fontWeight: 600 }}>{user?.username || '未登录'}</span>
+                <span style={{ color: '#cbd5e1', fontSize: 12 }}>
+                  {user?.is_admin ? <Tag color="gold" style={{ margin: 0 }}>管理员</Tag> : <Tag color="blue" style={{ margin: 0 }}>普通用户</Tag>}
+                </span>
+              </div>
+            </div>
+            {user?.is_admin && (
+              <Button type="link" onClick={() => setPwdModalOpen(true)} style={{ color: 'white' }}>
+                修改密码
+              </Button>
+            )}
+            <Button type="link" icon={<LogoutOutlined />} onClick={onLogout} style={{ color: 'white' }}>
+              退出
+            </Button>
+          </Space>
         </Header>
         <Content style={{ padding: '24px', overflow: 'auto' }}>
           <Outlet context={contextValue} />
@@ -201,6 +263,56 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
           CostMatrix © 2026 | GalaxySpace AI Team
         </Footer>
       </Layout>
+      <Modal
+        title="修改管理员密码"
+        open={pwdModalOpen}
+        onCancel={() => { setPwdModalOpen(false); form.resetFields() }}
+        onOk={handlePasswordChange}
+        confirmLoading={changingPwd}
+        destroyOnClose
+      >
+        <Form
+          layout="vertical"
+          form={form}
+          requiredMark={false}
+        >
+          <Form.Item
+            label="当前密码"
+            name="current_password"
+            rules={[{ required: true, message: '请输入当前密码' }]}
+          >
+            <Input.Password placeholder="请输入当前密码" autoComplete="current-password" />
+          </Form.Item>
+          <Form.Item
+            label="新密码"
+            name="new_password"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, message: '至少 6 个字符' },
+            ]}
+          >
+            <Input.Password placeholder="请输入新密码" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            label="确认新密码"
+            name="confirm_password"
+            dependencies={['new_password']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('new_password') === value) {
+                    return Promise.resolve()
+                  }
+                  return Promise.reject(new Error('两次输入的新密码不一致'))
+                }
+              }),
+            ]}
+          >
+            <Input.Password placeholder="再次输入新密码" autoComplete="new-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Layout>
   )
 }

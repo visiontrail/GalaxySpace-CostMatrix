@@ -8,6 +8,11 @@ import type {
   AnalysisResult,
   UploadResponse,
   UploadRecord,
+  UserInfo,
+  AuthResponse,
+  CreateUserPayload,
+  ChangePasswordPayload,
+  UpdateUserPayload,
 } from '@/types'
 
 // API 基础地址
@@ -30,6 +35,16 @@ const apiClient = axios.create({
   },
 }) as unknown as DataAxiosInstance
 
+// 请求拦截：附加 Token
+apiClient.interceptors.request.use((config: any) => {
+  const token = localStorage.getItem('cm_auth_token')
+  if (token) {
+    config.headers = config.headers || {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
 // 响应拦截器
 apiClient.interceptors.response.use(
   (response) => response.data,
@@ -39,6 +54,10 @@ apiClient.interceptors.response.use(
     const err = new Error(message)
     ;(err as any).response = error.response
     ;(err as any).status = error.response?.status
+    if (error.response?.status === 401) {
+      // 清空失效的 token，交由前端路由重定向
+      localStorage.removeItem('cm_auth_token')
+    }
     return Promise.reject(err)
   }
 )
@@ -241,6 +260,35 @@ export const deleteFile = async (filePath: string): Promise<ApiResponse> => {
  */
 export const clearData = async (filePath: string): Promise<ApiResponse> => {
   return apiClient.delete('/data', { params: { file_path: filePath } })
+}
+
+// ============ 认证与用户 ============
+export const login = async (payload: { username: string; password: string }): Promise<AuthResponse> => {
+  return apiClient.post<AuthResponse>('/login', payload)
+}
+
+export const fetchCurrentUser = async (): Promise<UserInfo> => {
+  return apiClient.get<UserInfo>('/me')
+}
+
+export const listUsers = async (): Promise<UserInfo[]> => {
+  return apiClient.get<UserInfo[]>('/users')
+}
+
+export const createUser = async (payload: CreateUserPayload): Promise<UserInfo> => {
+  return apiClient.post<UserInfo>('/users', payload)
+}
+
+export const updateUser = async (username: string, payload: UpdateUserPayload): Promise<UserInfo> => {
+  return apiClient.put<UserInfo>(`/users/${encodeURIComponent(username)}`, payload)
+}
+
+export const deleteUser = async (username: string): Promise<ApiResponse> => {
+  return apiClient.delete<ApiResponse>(`/users/${encodeURIComponent(username)}`)
+}
+
+export const changePassword = async (payload: ChangePasswordPayload): Promise<ApiResponse> => {
+  return apiClient.post<ApiResponse>('/change-password', payload)
 }
 
 /**

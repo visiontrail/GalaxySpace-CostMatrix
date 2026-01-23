@@ -6,6 +6,47 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 
 
+class UserBase(BaseModel):
+    """用户基础信息"""
+    username: str
+    is_admin: bool = False
+    created_at: Optional[datetime] = None
+
+
+class UserCreate(BaseModel):
+    """用户创建请求"""
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=6, max_length=128)
+    is_admin: bool = False
+
+
+class UserUpdate(BaseModel):
+    """用户更新请求"""
+    password: str | None = Field(None, min_length=6, max_length=128)
+    is_admin: bool | None = None
+    is_active: bool | None = None
+
+
+class LoginRequest(BaseModel):
+    """登录请求"""
+    username: str
+    password: str
+
+
+class PasswordChangeRequest(BaseModel):
+    """密码修改请求"""
+    current_password: str = Field(..., min_length=6, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
+    confirm_password: str = Field(..., min_length=6, max_length=128)
+
+
+class Token(BaseModel):
+    """访问令牌响应"""
+    access_token: str
+    token_type: str = "bearer"
+    user: UserBase
+
+
 class AnalysisResult(BaseModel):
     """分析结果基础模型"""
     success: bool

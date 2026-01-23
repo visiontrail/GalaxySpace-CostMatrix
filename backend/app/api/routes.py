@@ -1,7 +1,7 @@
 """
 API 路由定义
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Depends, Query, Path, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Depends, Query, Path, BackgroundTasks, status
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, Optional
 import json
@@ -15,11 +15,31 @@ from pathlib import Path
 from app.services.excel_processor import ExcelProcessor
 from app.services.database_parser import DatabaseParser
 from app.services.upload_progress import progress_manager
-from app.models.schemas import AnalysisResult, DashboardData
+from app.services.auth_service import (
+    authenticate_user,
+    create_access_token,
+    create_user as create_user_account,
+    update_user as update_user_account,
+    delete_user as delete_user_account,
+    get_current_user,
+    require_admin,
+    change_password,
+)
+from app.models.schemas import (
+    AnalysisResult,
+    DashboardData,
+    Token,
+    LoginRequest,
+    UserCreate,
+    UserUpdate,
+    UserBase,
+    PasswordChangeRequest,
+)
 from app.config import settings
 from app.utils.logger import get_logger
 from app.db.database import get_db
 from sqlalchemy.orm import Session
+from app.db.models import User
 
 router = APIRouter()
 logger = get_logger("api.routes")
@@ -93,6 +113,107 @@ def _mark_file_analyzed(file_path: str):
         records.append(fallback_record)
 
     _save_upload_records(records)
+
+
+@router.post("/login", response_model=Token, tags=["auth"])
+async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
+    """用户登录，返回 JWT"""
+    user = authenticate_user(db, credentials.username, credentials.password)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+
+    access_token = create_access_token({"sub": user.username})
+    user_data = UserBase(username=user.username, is_admin=user.is_admin, created_at=user.created_at)
+    return Token(access_token=access_token, user=user_data)
+
+
+@router.get("/me", response_model=UserBase, tags=["auth"])
+async def get_me(current_user: User = Depends(get_current_user)):
+    """获取当前登录用户信息"""
+    return UserBase(username=current_user.username, is_admin=current_user.is_admin, created_at=current_user.created_at)
+
+
+@router.post("/change-password", tags=["auth"])
+async def change_my_password(
+    payload: PasswordChangeRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    管理员修改自己的密码
+    """
+    if payload.new_password != payload.confirm_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="两次输入的新密码不一致")
+
+    change_password(db, current_user, payload.current_password, payload.new_password)
+    return {"success": True, "message": "密码修改成功"}
+
+
+@router.get("/users", response_model=list[UserBase], tags=["users"])
+async def list_users(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """管理员获取用户列表"""
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [
+        UserBase(username=u.username, is_admin=u.is_admin, created_at=u.created_at)
+        for u in users
+    ]
+
+
+@router.post("/users", response_model=UserBase, tags=["users"])
+async def create_user(
+    payload: UserCreate,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """管理员创建新用户"""
+    user = create_user_account(db, payload.username.strip(), payload.password, payload.is_admin)
+    return UserBase(username=user.username, is_admin=user.is_admin, created_at=user.created_at)
+
+
+@router.put("/users/{username}", response_model=UserBase, tags=["users"])
+async def update_user(
+    username: str,
+    payload: UserUpdate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """管理员修改用户信息"""
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    # 防止管理员删除/禁用自己导致锁死
+    if user.username == current_user.username and payload.is_active is False:
+        raise HTTPException(status_code=400, detail="不能禁用当前登录账户")
+
+    updated = update_user_account(
+        db,
+        user,
+        password=payload.password,
+        is_admin=payload.is_admin,
+        is_active=payload.is_active,
+    )
+    return UserBase(username=updated.username, is_admin=updated.is_admin, created_at=updated.created_at)
+
+
+@router.delete("/users/{username}", tags=["users"])
+async def delete_user(
+    username: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """管理员删除用户"""
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.username == current_user.username:
+        raise HTTPException(status_code=400, detail="不能删除当前登录账户")
+
+    delete_user_account(db, user)
+    return {"success": True, "message": "用户已删除"}
 
 
 @router.get("/health")
