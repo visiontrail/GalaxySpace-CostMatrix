@@ -2024,6 +2024,13 @@ def get_department_details_from_db(
         3: Department.id == Employee.level3_department_id,
     }
 
+    # Resolve parent department name for display (only meaningful for level 2/3)
+    parent_department_name = None
+    if dept.parent_id:
+        parent_dept = db.query(Department).filter(Department.id == dept.parent_id).first()
+        if parent_dept:
+            parent_department_name = parent_dept.name
+
     # Get employee IDs for this department at this level (for travel cost query)
     emp_id_col_map = {
         1: Employee.department_id,
@@ -2291,7 +2298,7 @@ def get_department_details_from_db(
     return {
         'department_name': department_name,
         'department_level': f'{level}级部门',
-        'parent_department': '',
+        'parent_department': parent_department_name or '',
         'avg_work_hours': float(result.avg_work_hours or 0),
         'holiday_avg_work_hours': float(holiday_avg_work_hours or 0),
         'workday_attendance_days': workday_attendance,
