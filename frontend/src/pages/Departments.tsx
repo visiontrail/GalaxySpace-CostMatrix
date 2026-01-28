@@ -367,6 +367,7 @@ const Departments = () => {
       yAxis: {
         type: 'category',
         data: travelRankingDesc.map((r: any) => r.name),
+        inverse: true,
       },
       series: [
         {
@@ -393,6 +394,7 @@ const Departments = () => {
       yAxis: {
         type: 'category',
         data: avgHoursRankingDesc.map((r: any) => r.name),
+        inverse: true,
       },
       series: [
         {
@@ -529,6 +531,7 @@ const Departments = () => {
       yAxis: {
         type: 'category',
         data: travelRankingDesc.map((r) => r.name),
+        inverse: true,
       },
       series: [
         {
@@ -550,12 +553,13 @@ const Departments = () => {
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: selectedDepartment.anomaly_ranking.map((r) => r.name),
+        data: [...selectedDepartment.anomaly_ranking].sort((a, b) => b.value - a.value).map((r) => r.name),
+        inverse: true,
       },
       series: [
         {
           type: 'bar',
-          data: selectedDepartment.anomaly_ranking.map((r) => ({
+          data: [...selectedDepartment.anomaly_ranking].sort((a, b) => b.value - a.value).map((r) => ({
             value: r.value,
             itemStyle: { color: '#ee6666' },
           })),
@@ -577,6 +581,7 @@ const Departments = () => {
       yAxis: {
         type: 'category',
         data: longestHoursDesc.map((r) => r.name),
+        inverse: true,
       },
       series: [
         {

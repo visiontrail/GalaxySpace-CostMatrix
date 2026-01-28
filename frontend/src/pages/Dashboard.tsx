@@ -254,17 +254,17 @@ const Dashboard = () => {
     yAxis: {
       type: 'category',
       data: data.project_top10
-        .map(item => item.name.length > 10 ? item.name.substring(0, 10) + '...' : item.name)
-        .reverse(),
+        .map(item => item.name.length > 10 ? item.name.substring(0, 10) + '...' : item.name),
       axisLabel: {
         interval: 0
-      }
+      },
+      inverse: true
     },
     series: [
       {
         name: '成本',
         type: 'bar',
-        data: data.project_top10.map(item => item.cost).reverse(),
+        data: data.project_top10.map(item => item.cost),
         itemStyle: {
           color: '#5470c6',
           borderRadius: [0, 5, 5, 0]
@@ -548,7 +548,8 @@ const Dashboard = () => {
       data: flightOverTypeData.map(item => item.name),
       axisLabel: {
         interval: 0
-      }
+      },
+      inverse: true
     },
     series: [
       {
