@@ -1709,7 +1709,7 @@ class ExcelProcessor:
                 .sort_values(ascending=False)
             )
             anomaly_ranking = [
-                {'name': name, 'value': int(count), 'detail': f'{count}天'}
+                {'name': name, 'value': int(count), 'detail': f'{count}人天'}
                 for name, count in unknown_counts.head(10).items()
             ]
 

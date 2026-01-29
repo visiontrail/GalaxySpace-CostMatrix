@@ -211,16 +211,28 @@ const Departments = () => {
 
   // 面包屑导航
   const breadcrumbItems = [
-    { title: '首页' },
+    {
+      key: 'home',
+      title: <a onClick={() => navigate('/')}>首页</a>,
+    },
   ]
   if (currentLevel >= 1) {
-    breadcrumbItems.push({ title: '部门管理' })
+    breadcrumbItems.push({
+      key: 'departments',
+      title: currentLevel > 1 ? <a onClick={() => handleBreadcrumbClick(1)}>部门管理</a> : '部门管理',
+    })
   }
   if (currentLevel >= 2 && selectedLevel1) {
-    breadcrumbItems.push({ title: selectedLevel1 })
+    breadcrumbItems.push({
+      key: `level1-${selectedLevel1}`,
+      title: currentLevel > 2 ? <a onClick={() => handleBreadcrumbClick(2)}>{selectedLevel1}</a> : selectedLevel1,
+    })
   }
   if (currentLevel === 3 && selectedLevel2) {
-    breadcrumbItems.push({ title: selectedLevel2 })
+    breadcrumbItems.push({
+      key: `level2-${selectedLevel2}`,
+      title: selectedLevel2,
+    })
   }
 
   const formatMonthDisplay = (month: string) => {
@@ -231,12 +243,11 @@ const Departments = () => {
   const departmentStatsColumns = [
     { title: '部门名称', dataIndex: 'name', key: 'name' },
     { title: '人数', dataIndex: 'person_count', key: 'person_count', render: (v: number) => `${v}人` },
-    { title: '工作日出勤天数', dataIndex: 'workday_attendance_days', key: 'workday_attendance_days', render: (v: number) => `${v}天` },
-    { title: '公休日上班天数', dataIndex: 'weekend_work_days', key: 'weekend_work_days', render: (v: number) => `${v}天` },
-    { title: '周末出勤次数', dataIndex: 'weekend_attendance_count', key: 'weekend_attendance_count' },
-    { title: '出差天数', dataIndex: 'travel_days', key: 'travel_days', render: (v: number) => `${v}天` },
-    { title: '请假天数', dataIndex: 'leave_days', key: 'leave_days', render: (v: number) => `${v}天` },
-    { title: '未知天数（疑似异常）', dataIndex: 'anomaly_days', key: 'anomaly_days', render: (v: number) => `${v}天` },
+    { title: '工作日出勤（人天）', dataIndex: 'workday_attendance_days', key: 'workday_attendance_days', render: (v: number) => `${v}人天` },
+    { title: '公休日上班（人天）', dataIndex: 'weekend_work_days', key: 'weekend_work_days', render: (v: number) => `${v}人天` },
+    { title: '出差（人天）', dataIndex: 'travel_days', key: 'travel_days', render: (v: number) => `${v}人天` },
+    { title: '请假（人天）', dataIndex: 'leave_days', key: 'leave_days', render: (v: number) => `${v}人天` },
+    { title: '未知天数（疑似异常）', dataIndex: 'anomaly_days', key: 'anomaly_days', render: (v: number) => `${v}人天` },
     { title: '晚上7:30后下班人数', dataIndex: 'late_after_1930_count', key: 'late_after_1930_count', render: (v: number) => `${v}人` },
     { title: '工作日平均工时', dataIndex: 'avg_work_hours', key: 'avg_work_hours', render: (v: number) => `${v.toFixed(1)}h` },
     { title: '节假日平均工时', dataIndex: 'holiday_avg_work_hours', key: 'holiday_avg_work_hours', render: (v: number) => v > 0 ? `${v.toFixed(1)}h` : '-' },
@@ -391,11 +402,11 @@ const Departments = () => {
     // 考勤天数分布饼图
     const attendancePieOption: EChartsOption = {
       title: { text: '考勤天数分布', left: 'center' },
-      tooltip: { trigger: 'item', formatter: '{b}: {c}天 ({d}%)' },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}人天 ({d}%)' },
       legend: { orient: 'vertical', left: 'left' },
       series: [
         {
-          name: '天数',
+          name: '人天',
           type: 'pie',
           radius: '50%',
           label: { show: true, formatter: '{b}: {d}%' },
@@ -535,11 +546,11 @@ const Departments = () => {
 
     const attendancePieOption: EChartsOption = {
       title: { text: '考勤天数分布', left: 'center' },
-      tooltip: { trigger: 'item', formatter: '{b}: {c}天 ({d}%)' },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}人天 ({d}%)' },
       legend: { orient: 'vertical', left: 'left' },
       series: [
         {
-          name: '天数',
+          name: '人天',
           type: 'pie',
           radius: '50%',
           label: { show: true, formatter: '{b}: {d}%' },
@@ -676,11 +687,11 @@ const Departments = () => {
     // 考勤天数分布饼图
     const attendancePieOption: EChartsOption = {
       title: { text: '考勤天数分布', left: 'center' },
-      tooltip: { trigger: 'item', formatter: '{b}: {c}天 ({d}%)' },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}人天 ({d}%)' },
       legend: { orient: 'vertical', left: 'left' },
       series: [
         {
-          name: '天数',
+          name: '人天',
           type: 'pie',
           radius: '50%',
           label: { show: true, formatter: '{b}: {d}%' },
@@ -805,7 +816,7 @@ const Departments = () => {
           <Descriptions bordered column={3}>
             <Descriptions.Item label="出差天数">{attendance_days_distribution['出差'] || 0} 人天</Descriptions.Item>
             <Descriptions.Item label="请假天数">{attendance_days_distribution['请假'] || 0} 人天</Descriptions.Item>
-            <Descriptions.Item label="未知天数（疑似异常）">{selectedDepartment.anomaly_days} 天</Descriptions.Item>
+            <Descriptions.Item label="未知天数（疑似异常）">{selectedDepartment.anomaly_days} 人天</Descriptions.Item>
           </Descriptions>
 
           <Descriptions bordered column={2}>

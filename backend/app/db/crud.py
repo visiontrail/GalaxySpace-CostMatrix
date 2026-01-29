@@ -1188,7 +1188,7 @@ def get_department_detail_metrics(
     SELECT
         (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', travel_days, 'detail', travel_days || '天'))
          FROM travel_counts WHERE travel_rank <= 10) as travel_ranking,
-        (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', anomaly_count, 'detail', anomaly_count || '次'))
+        (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', anomaly_count, 'detail', anomaly_count || '人天'))
          FROM anomaly_counts WHERE anomaly_rank <= 10) as anomaly_ranking,
         (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', ROUND(avg_hours, 2), 'detail', ROUND(avg_hours, 2) || '小时'))
          FROM avg_hours_by_person WHERE hours_rank <= 10) as longest_hours_ranking,
@@ -2232,7 +2232,7 @@ def get_department_details_from_db(
     ).limit(10).all()
 
     anomaly_ranking_list = [
-        {'name': r.name, 'value': int(r.value or 0), 'detail': f'{r.value}天'}
+        {'name': r.name, 'value': int(r.value or 0), 'detail': f'{r.value}人天'}
         for r in anomaly_ranking
     ]
 
@@ -2530,11 +2530,11 @@ def get_level1_department_statistics_from_db(
         COUNT(DISTINCT e.id) as person_count,
         AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as avg_work_hours,
         AVG(CASE WHEN a.status = '公休日上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as holiday_avg_work_hours,
-        COUNT(DISTINCT CASE WHEN a.status = '上班' THEN DATE(a.date) END) as workday_attendance_days,
-        COUNT(DISTINCT CASE WHEN a.status = '公休日上班' THEN DATE(a.date) END) as weekend_work_days,
+        COUNT(CASE WHEN a.status = '上班' THEN 1 END) as workday_attendance_days,
+        COUNT(CASE WHEN a.status = '公休日上班' THEN 1 END) as weekend_work_days,
         COUNT(CASE WHEN a.status = '公休日上班' THEN 1 END) as weekend_attendance_count,
-        COUNT(DISTINCT CASE WHEN a.status = '出差' THEN DATE(a.date) END) as travel_days,
-        COUNT(DISTINCT CASE WHEN a.status LIKE '%请假%' THEN DATE(a.date) END) as leave_days,
+        COUNT(CASE WHEN a.status = '出差' THEN 1 END) as travel_days,
+        COUNT(CASE WHEN a.status LIKE '%请假%' THEN 1 END) as leave_days,
         COUNT(CASE WHEN COALESCE(TRIM(a.status), '') IN ('', '未知', 'nan', 'None') THEN 1 END) as anomaly_days,
         COUNT(DISTINCT CASE WHEN a.is_late_after_1930 = 1 THEN e.id END) as late_after_1930_count,
         COALESCE(tc.total_cost, 0) as total_cost
@@ -2712,11 +2712,11 @@ def get_level2_department_statistics_from_db(
             COUNT(DISTINCT e.id) as person_count,
             AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as avg_work_hours,
             AVG(CASE WHEN a.status = '公休日上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as holiday_avg_work_hours,
-            COUNT(DISTINCT CASE WHEN a.status = '上班' THEN DATE(a.date) END) as workday_attendance_days,
-            COUNT(DISTINCT CASE WHEN a.status = '公休日上班' THEN DATE(a.date) END) as weekend_work_days,
+            COUNT(CASE WHEN a.status = '上班' THEN 1 END) as workday_attendance_days,
+            COUNT(CASE WHEN a.status = '公休日上班' THEN 1 END) as weekend_work_days,
             COUNT(CASE WHEN a.status = '公休日上班' THEN 1 END) as weekend_attendance_count,
-            COUNT(DISTINCT CASE WHEN a.status = '出差' THEN DATE(a.date) END) as travel_days,
-            COUNT(DISTINCT CASE WHEN a.status LIKE '%请假%' THEN DATE(a.date) END) as leave_days,
+            COUNT(CASE WHEN a.status = '出差' THEN 1 END) as travel_days,
+            COUNT(CASE WHEN a.status LIKE '%请假%' THEN 1 END) as leave_days,
             COUNT(CASE WHEN COALESCE(TRIM(a.status), '') IN ('', '未知', 'nan', 'None') THEN 1 END) as anomaly_days,
             COUNT(DISTINCT CASE WHEN a.is_late_after_1930 = 1 THEN e.id END) as late_after_1930_count,
             COALESCE(tc.total_cost, 0) as total_cost
