@@ -288,6 +288,19 @@ const Dashboard = () => {
         fontWeight: 'bold'
       }
     },
+    graphic: [
+      {
+        type: 'text',
+        left: 'center',
+        top: 45,
+        style: {
+          text: '基于工作日计算的平均工时',
+          fontSize: 12,
+          fill: '#999',
+          textBaseline: 'middle'
+        }
+      }
+    ],
     tooltip: {
       trigger: 'axis',
       axisPointer: {
@@ -298,7 +311,7 @@ const Dashboard = () => {
       left: '3%',
       right: '4%',
       bottom: '3%',
-      top: 50,
+      top: 70,
       containLabel: true
     },
     xAxis: {
