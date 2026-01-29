@@ -237,3 +237,37 @@ export interface Level2DepartmentStats {
   late_after_1930_count: number
   total_cost: number
 }
+
+export interface Level3DepartmentStats {
+  name: string
+  person_count: number
+  avg_work_hours: number
+  holiday_avg_work_hours: number
+  workday_attendance_days: number
+  weekend_work_days: number
+  weekend_attendance_count: number
+  travel_days: number
+  leave_days: number
+  anomaly_days: number
+  late_after_1930_count: number
+  total_cost: number
+}
+
+export interface Level1DepartmentStatistics {
+  department_name: string
+  total_travel_cost: number
+  attendance_days_distribution: Record<string, number>
+  travel_ranking: EmployeeRanking[]
+  avg_hours_ranking: EmployeeRanking[]
+  level2_department_stats: Level2DepartmentStats[]
+}
+
+export interface Level2DepartmentStatistics {
+  department_name: string
+  parent_department?: string | null
+  total_travel_cost: number
+  attendance_days_distribution: Record<string, number>
+  travel_ranking: EmployeeRanking[]
+  avg_hours_ranking: EmployeeRanking[]
+  level3_department_stats: Level3DepartmentStats[]
+}

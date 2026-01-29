@@ -497,6 +497,71 @@ export const getLevel1DepartmentStatistics = async (
 }
 
 /**
+ * 获取二级部门的汇总统计数据（用于三级部门表格下方的统计展示）
+ * @param filePath 文件路径（可选，不提供则从数据库读取）
+ * @param level2Name 二级部门名称
+ * @param months 月份列表（数据库模式下使用）
+ * @returns 二级部门统计数据
+ */
+export const getLevel2DepartmentStatistics = async (
+  filePath: string,
+  level2Name: string,
+  months?: string[]
+): Promise<ApiResponse<{
+  department_name: string
+  parent_department?: string | null
+  total_travel_cost: number
+  attendance_days_distribution: Record<string, number>
+  travel_ranking: Array<{ name: string; value: number; detail?: string }>
+  avg_hours_ranking: Array<{ name: string; value: number; detail?: string }>
+  level3_department_stats: Array<{
+    name: string
+    person_count: number
+    avg_work_hours: number
+    holiday_avg_work_hours: number
+    workday_attendance_days: number
+    weekend_work_days: number
+    weekend_attendance_count: number
+    travel_days: number
+    leave_days: number
+    anomaly_days: number
+    late_after_1930_count: number
+    total_cost: number
+  }>
+}>> => {
+  const params: Record<string, any> = { level2_name: level2Name }
+  if (filePath) {
+    params.file_path = filePath
+  }
+  if (months && months.length > 0) {
+    params.months = months.join(',')
+  }
+
+  return apiClient.get<ApiResponse<{
+    department_name: string
+    parent_department?: string | null
+    total_travel_cost: number
+    attendance_days_distribution: Record<string, number>
+    travel_ranking: Array<{ name: string; value: number; detail?: string }>
+    avg_hours_ranking: Array<{ name: string; value: number; detail?: string }>
+    level3_department_stats: Array<{
+      name: string
+      person_count: number
+      avg_work_hours: number
+      holiday_avg_work_hours: number
+      workday_attendance_days: number
+      weekend_work_days: number
+      weekend_attendance_count: number
+      travel_days: number
+      leave_days: number
+      anomaly_days: number
+      late_after_1930_count: number
+      total_cost: number
+    }>
+  }>>('/departments/level2/statistics', { params })
+}
+
+/**
  * 获取异常记录详情
  * @param filePath 文件路径（可选，不提供则从数据库读取）
  * @param months 月份列表（数据库模式下使用）

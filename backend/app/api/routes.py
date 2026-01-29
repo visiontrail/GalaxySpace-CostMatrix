@@ -1048,6 +1048,82 @@ async def get_level1_department_statistics(
         raise HTTPException(status_code=500, detail=f"获取一级部门统计数据失败: {str(e)}")
 
 
+@router.get("/departments/level2/statistics")
+async def get_level2_department_statistics(
+    file_path: Optional[str] = Query(None, description="文件路径（可选，不提供则从数据库读取）"),
+    level2_name: str = Query(..., description="二级部门名称"),
+    months: Optional[str] = Query(None, description="月份列表，逗号分隔 (例如: 2025-01)"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取二级部门的汇总统计数据（用于三级部门表格下方的统计展示）
+
+    支持从Excel文件或数据库获取数据
+
+    Args:
+        file_path: Excel 文件路径（可选）
+        level2_name: 二级部门名称
+        months: 月份列表（数据库模式下使用）
+
+    Returns:
+        包含以下统计数据的字典:
+        - department_name: 部门名称
+        - parent_department: 上级一级部门名称
+        - total_travel_cost: 累计差旅成本
+        - attendance_days_distribution: 考勤天数分布
+        - travel_ranking: 出差排行榜（按人）
+        - avg_hours_ranking: 平均工时排行榜（按人）
+        - level3_department_stats: 三级部门统计列表（包含所有指标）
+    """
+    if not file_path:
+        if not months:
+            raise HTTPException(status_code=400, detail="数据库模式下必须提供months参数")
+
+        try:
+            from app.db.crud import get_level2_department_statistics_from_db
+
+            months_list = [m.strip() for m in months.split(',') if m.strip()]
+            statistics = get_level2_department_statistics_from_db(db, level2_name, months_list)
+
+            if not statistics:
+                raise HTTPException(status_code=404, detail=f"未找到二级部门: {level2_name}")
+
+            return AnalysisResult(
+                success=True,
+                message="获取二级部门统计数据成功",
+                data=statistics
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception(f"从数据库获取二级部门统计数据失败: {e}")
+            raise HTTPException(status_code=500, detail=f"获取二级部门统计数据失败: {str(e)}")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    try:
+        processor = ExcelProcessor(file_path)
+        processor.load_all_sheets(load_workbook_obj=False)
+
+        statistics = processor.get_level2_department_statistics(level2_name)
+
+        if not statistics:
+            raise HTTPException(status_code=404, detail=f"未找到二级部门: {level2_name}")
+
+        return AnalysisResult(
+            success=True,
+            message="获取二级部门统计数据成功",
+            data=statistics
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"获取二级部门统计数据失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取二级部门统计数据失败: {str(e)}")
+
+
 @router.delete("/months/{month}")
 async def delete_month(
     month: str,

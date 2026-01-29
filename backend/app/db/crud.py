@@ -2581,6 +2581,189 @@ def get_level1_department_statistics_from_db(
     }
 
 
+def get_level2_department_statistics_from_db(
+    db: Session,
+    level2_name: str,
+    months: Optional[List[str]] = None
+) -> dict:
+    """
+    Get aggregated statistics for a level 2 department (used for level 3 view).
+
+    Args:
+        db: Database session
+        level2_name: Level 2 department name
+        months: List of months to filter (YYYY-MM format)
+
+    Returns:
+        Dictionary containing aggregated statistics for the level 2 department
+    """
+    if not months:
+        raise ValueError("Months parameter is required")
+
+    ranges = _month_ranges(months)
+    if not ranges:
+        return {}
+
+    upload_ids = get_all_uploads_for_months(db, months)
+    if not upload_ids:
+        return {}
+
+    date_filter_attendance = _date_range_filter(AttendanceRecord.date, ranges)
+    date_filter_travel = _date_range_filter(TravelExpense.date, ranges)
+
+    level2_dept = db.query(Department).filter_by(name=level2_name, level=2).first()
+    if not level2_dept:
+        return {}
+
+    parent_department = None
+    if level2_dept.parent_id:
+        parent = db.query(Department).filter(Department.id == level2_dept.parent_id).first()
+        parent_department = parent.name if parent else None
+
+    # Total travel cost for this level 2 department
+    travel_filters = [
+        Employee.level2_department_id == level2_dept.id,
+        TravelExpense.upload_id.in_(upload_ids)
+    ]
+    if date_filter_travel is not None:
+        travel_filters.append(date_filter_travel)
+
+    total_cost = db.query(func.sum(TravelExpense.amount)).join(
+        Employee, TravelExpense.employee_id == Employee.id
+    ).filter(
+        *travel_filters
+    ).scalar() or 0
+
+    # Attendance distribution
+    attendance_filters = [
+        Employee.level2_department_id == level2_dept.id,
+        AttendanceRecord.upload_id.in_(upload_ids)
+    ]
+    if date_filter_attendance is not None:
+        attendance_filters.append(date_filter_attendance)
+
+    attendance_dist = db.query(
+        AttendanceRecord.status,
+        func.count(AttendanceRecord.id).label('count')
+    ).join(
+        Employee, AttendanceRecord.employee_id == Employee.id
+    ).filter(
+        *attendance_filters
+    ).group_by(
+        AttendanceRecord.status
+    ).all()
+    attendance_days_distribution = {row.status: row.count for row in attendance_dist}
+
+    # Travel ranking (Top 10)
+    travel_ranking = db.query(
+        Employee.name.label('name'),
+        func.count(func.distinct(func.date(AttendanceRecord.date))).label('travel_days')
+    ).join(
+        AttendanceRecord, AttendanceRecord.employee_id == Employee.id
+    ).filter(
+        Employee.level2_department_id == level2_dept.id,
+        AttendanceRecord.upload_id.in_(upload_ids),
+        AttendanceRecord.status == '出差',
+        date_filter_attendance if date_filter_attendance is not None else True
+    ).group_by(
+        Employee.name
+    ).order_by(
+        func.count(func.distinct(func.date(AttendanceRecord.date))).desc()
+    ).limit(10).all()
+
+    travel_ranking = [
+        {'name': row.name, 'value': int(row.travel_days or 0), 'detail': f'{row.travel_days}天'}
+        for row in travel_ranking
+    ]
+
+    # Average hours ranking (Top 10)
+    avg_hours_ranking = db.query(
+        Employee.name.label('name'),
+        func.avg(AttendanceRecord.work_hours).label('avg_hours')
+    ).join(
+        AttendanceRecord, AttendanceRecord.employee_id == Employee.id
+    ).filter(
+        Employee.level2_department_id == level2_dept.id,
+        AttendanceRecord.upload_id.in_(upload_ids),
+        AttendanceRecord.status == '上班',
+        AttendanceRecord.work_hours.isnot(None),
+        AttendanceRecord.work_hours != 0,
+        date_filter_attendance if date_filter_attendance is not None else True
+    ).group_by(
+        Employee.name
+    ).order_by(
+        func.avg(AttendanceRecord.work_hours).desc()
+    ).limit(10).all()
+
+    avg_hours_ranking = [
+        {'name': row.name, 'value': round(float(row.avg_hours or 0), 2), 'detail': f'{row.avg_hours:.2f}小时'}
+        for row in avg_hours_ranking
+    ]
+
+    # Level 3 department stats under this level 2 department
+    level3_depts = db.query(Department).filter_by(level=3, parent_id=level2_dept.id).all()
+    level3_dept_ids = [d.id for d in level3_depts]
+
+    level3_department_stats = []
+    if level3_dept_ids:
+        level3_stats_query = text("""
+        SELECT
+            d.name as name,
+            COUNT(DISTINCT e.id) as person_count,
+            AVG(CASE WHEN a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as avg_work_hours,
+            AVG(CASE WHEN a.status = '公休日上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0 THEN a.work_hours END) as holiday_avg_work_hours,
+            COUNT(DISTINCT CASE WHEN a.status = '上班' THEN DATE(a.date) END) as workday_attendance_days,
+            COUNT(DISTINCT CASE WHEN a.status = '公休日上班' THEN DATE(a.date) END) as weekend_work_days,
+            COUNT(CASE WHEN a.status = '公休日上班' THEN 1 END) as weekend_attendance_count,
+            COUNT(DISTINCT CASE WHEN a.status = '出差' THEN DATE(a.date) END) as travel_days,
+            COUNT(DISTINCT CASE WHEN a.status LIKE '%请假%' THEN DATE(a.date) END) as leave_days,
+            COUNT(CASE WHEN COALESCE(TRIM(a.status), '') IN ('', '未知', 'nan', 'None') THEN 1 END) as anomaly_days,
+            COUNT(DISTINCT CASE WHEN a.is_late_after_1930 = 1 THEN e.id END) as late_after_1930_count,
+            COALESCE(tc.total_cost, 0) as total_cost
+        FROM dim_department d
+        JOIN dim_employee e ON e.level3_department_id = d.id
+        LEFT JOIN fact_attendance a ON a.employee_id = e.id AND a.upload_id IN :upload_ids
+        LEFT JOIN (
+            SELECT e2.level3_department_id, COALESCE(SUM(t2.amount), 0) as total_cost
+            FROM dim_employee e2
+            JOIN fact_travel_expense t2 ON t2.employee_id = e2.id
+            WHERE t2.upload_id IN :upload_ids
+            GROUP BY e2.level3_department_id
+        ) tc ON d.id = tc.level3_department_id
+        WHERE d.id IN :dept_ids
+        GROUP BY d.id, tc.total_cost
+        ORDER BY total_cost DESC
+        """).bindparams(bindparam('dept_ids', expanding=True), bindparam('upload_ids', expanding=True))
+
+        level3_department_stats = [
+            {
+                'name': row.name,
+                'person_count': row.person_count or 0,
+                'avg_work_hours': round(float(row.avg_work_hours or 0), 2),
+                'holiday_avg_work_hours': round(float(row.holiday_avg_work_hours or 0), 2),
+                'workday_attendance_days': row.workday_attendance_days or 0,
+                'weekend_work_days': row.weekend_work_days or 0,
+                'weekend_attendance_count': row.weekend_attendance_count or 0,
+                'travel_days': row.travel_days or 0,
+                'leave_days': row.leave_days or 0,
+                'anomaly_days': row.anomaly_days or 0,
+                'late_after_1930_count': row.late_after_1930_count or 0,
+                'total_cost': round(float(row.total_cost or 0), 2)
+            }
+            for row in db.execute(level3_stats_query, {'dept_ids': level3_dept_ids, 'upload_ids': upload_ids})
+        ]
+
+    return {
+        'department_name': level2_name,
+        'parent_department': parent_department,
+        'total_travel_cost': round(float(total_cost), 2),
+        'attendance_days_distribution': attendance_days_distribution,
+        'travel_ranking': travel_ranking,
+        'avg_hours_ranking': avg_hours_ranking,
+        'level3_department_stats': level3_department_stats
+    }
+
+
 def get_project_orders_from_db(
     db: Session,
     project_code: str,

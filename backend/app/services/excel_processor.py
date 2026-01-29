@@ -1915,6 +1915,150 @@ class ExcelProcessor:
             'level2_department_stats': level2_department_stats
         }
 
+    def get_level2_department_statistics(self, level2_name: str) -> Dict[str, Any]:
+        """
+        获取二级部门的汇总统计数据（用于三级部门表格下方的统计展示）
+
+        Args:
+            level2_name: 二级部门名称
+
+        Returns:
+            包含以下统计数据的字典:
+            - total_travel_cost: 累计差旅成本
+            - attendance_days_distribution: 考勤天数分布
+            - travel_ranking: 出差排行榜（按人）
+            - avg_hours_ranking: 平均工时排行榜（按人）
+            - level3_department_stats: 三级部门统计列表（包含所有指标）
+        """
+        df = self.clean_attendance_data()
+        if df.empty:
+            return {}
+
+        level2_df = df[df['二级部门'] == level2_name].copy()
+        if level2_df.empty:
+            return {}
+
+        parent_department = None
+        if '一级部门' in level2_df.columns:
+            parents = level2_df['一级部门'].dropna().unique().tolist()
+            parent_department = parents[0] if parents else None
+
+        # 1. 累计差旅成本（以二级部门为单位，确保包含未分配三级部门的数据）
+        level2_costs = self._calculate_costs_by_department(level2_df, '二级部门')
+        total_travel_cost = 0
+        if level2_name in level2_costs:
+            total_travel_cost = level2_costs[level2_name].get('total_cost', 0)
+        else:
+            # 兜底：按三级部门汇总成本
+            level3_costs = self._calculate_costs_by_department(level2_df, '三级部门')
+            total_travel_cost = sum(info.get('total_cost', 0) for info in level3_costs.values())
+
+        # 2. 考勤天数分布（整个二级部门）
+        attendance_days_distribution = {}
+        if '当日状态判断' in level2_df.columns:
+            attendance_days_distribution = level2_df['当日状态判断'].value_counts().to_dict()
+
+        # 3. 出差排行榜（按人）
+        travel_ranking = []
+        if '当日状态判断' in level2_df.columns:
+            travel_df = level2_df[level2_df['当日状态判断'] == '出差']
+            if not travel_df.empty and '姓名' in travel_df.columns:
+                travel_counts = travel_df['姓名'].value_counts().head(10)
+                travel_ranking = [
+                    {'name': name, 'value': int(count), 'detail': f'{count}天'}
+                    for name, count in travel_counts.items()
+                ]
+
+        # 4. 平均工时排行榜（工作日）
+        avg_hours_ranking = []
+        if '工时' in level2_df.columns and '姓名' in level2_df.columns and '当日状态判断' in level2_df.columns:
+            workday_df = level2_df[level2_df['当日状态判断'] == '上班']
+            person_avg_hours = workday_df[workday_df['工时'].notna() & (workday_df['工时'] != 0)].groupby('姓名')['工时'].mean()
+            person_avg_hours = person_avg_hours.sort_values(ascending=False)
+            for name, avg_hours in person_avg_hours.head(10).items():
+                avg_hours_ranking.append({
+                    'name': name,
+                    'value': float(round(avg_hours, 2)),
+                    'detail': f'{avg_hours:.2f}小时'
+                })
+
+        # 5. 三级部门统计
+        level3_department_stats = []
+        if '三级部门' in level2_df.columns:
+            level3_list = level2_df['三级部门'].dropna().unique().tolist()
+            level3_costs = self._calculate_costs_by_department(level2_df, '三级部门')
+
+            for l3_dept in level3_list:
+                l3_df = level2_df[level2_df['三级部门'] == l3_dept]
+
+                person_count = l3_df['姓名'].nunique() if '姓名' in l3_df.columns else 0
+
+                avg_hours = 0
+                holiday_avg_hours = 0
+                if '工时' in l3_df.columns and '当日状态判断' in l3_df.columns:
+                    valid_hours = l3_df[(l3_df['当日状态判断'] == '上班') & (l3_df['工时'] != 0)]['工时'].dropna()
+                    if not valid_hours.empty:
+                        avg_hours = float(valid_hours.mean())
+
+                    holiday_data = l3_df[l3_df['当日状态判断'] == '公休日上班']
+                    holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                    if not holiday_valid_hours.empty:
+                        holiday_avg_hours = float(holiday_valid_hours.mean())
+
+                workday_attendance_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    workday_attendance_days = int(l3_df[l3_df['当日状态判断'] == '上班'].shape[0])
+
+                weekend_work_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    weekend_work_days = int(l3_df[l3_df['当日状态判断'] == '公休日上班'].shape[0])
+
+                weekend_attendance_count = weekend_work_days
+
+                travel_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    travel_days = int(l3_df[l3_df['当日状态判断'] == '出差'].shape[0])
+
+                leave_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    leave_days = int(l3_df[l3_df['当日状态判断'] == '请假'].shape[0])
+
+                unknown_mask = self._unknown_status_mask(l3_df)
+                anomaly_days = int(unknown_mask.sum())
+
+                late_after_1930_count = 0
+                if '最晚19:30之后' in l3_df.columns:
+                    late_after_1930_count = int(l3_df[l3_df['最晚19:30之后'] == '符合']['姓名'].nunique())
+
+                cost_info = level3_costs.get(l3_dept, {'total_cost': 0})
+
+                level3_department_stats.append({
+                    'name': l3_dept,
+                    'person_count': person_count,
+                    'avg_work_hours': round(avg_hours, 2),
+                    'holiday_avg_work_hours': round(holiday_avg_hours, 2),
+                    'workday_attendance_days': workday_attendance_days,
+                    'weekend_work_days': weekend_work_days,
+                    'weekend_attendance_count': weekend_attendance_count,
+                    'travel_days': travel_days,
+                    'leave_days': leave_days,
+                    'anomaly_days': anomaly_days,
+                    'late_after_1930_count': late_after_1930_count,
+                    'total_cost': float(cost_info.get('total_cost', 0))
+                })
+
+            level3_department_stats.sort(key=lambda x: x['total_cost'], reverse=True)
+
+        return {
+            'department_name': level2_name,
+            'parent_department': parent_department,
+            'total_travel_cost': round(total_travel_cost, 2),
+            'attendance_days_distribution': attendance_days_distribution,
+            'travel_ranking': travel_ranking,
+            'avg_hours_ranking': avg_hours_ranking,
+            'level3_department_stats': level3_department_stats
+        }
+
     def get_available_months(self) -> List[str]:
         """获取所有可用的月份列表（从差旅数据中提取，格式：YYYY-M，按时间升序排列）"""
         # Ensure data is loaded
