@@ -42,12 +42,30 @@ docker save "${FRONTEND_IMAGE}:${VERSION}" -o "${IMG_DIR}/frontend-${VERSION}.ta
 
 echo "4) Assemble release bundle at ${PKG_DIR}"
 cp release/docker-compose.release.yml "${PKG_DIR}/docker-compose.yml"
-cp release/.env.release.example "${PKG_DIR}/.env.example"
 cp release/DEPLOY.md "${PKG_DIR}/DEPLOY.md"
 cp -r release/scripts/* "${SCRIPT_DST}/"
 
-# Provide a ready-to-use .env with the image tag baked in
+# Provide ready-to-use env files with the built image tag baked in
 cat > "${PKG_DIR}/.env" <<EOF
+COMPOSE_PROJECT_NAME=costmatrix
+IMAGE_TAG=${VERSION}
+BACKEND_IMAGE=${BACKEND_IMAGE}
+FRONTEND_IMAGE=${FRONTEND_IMAGE}
+BACKEND_PORT=8000
+FRONTEND_PORT=8180
+APP_NAME=CostMatrix
+APP_VERSION=1.0.0
+DEBUG=false
+ALLOWED_ORIGINS=http://localhost:8180
+SECRET_KEY=change-me
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+DEFAULT_ADMIN_USERNAME=admin
+INITIAL_ADMIN_PASSWORD_FILE=/app/config/initial_admin_password.txt
+UPLOAD_DIR=/app/uploads
+MAX_UPLOAD_SIZE=200
+EOF
+
+cat > "${PKG_DIR}/.env.example" <<EOF
 COMPOSE_PROJECT_NAME=costmatrix
 IMAGE_TAG=${VERSION}
 BACKEND_IMAGE=${BACKEND_IMAGE}

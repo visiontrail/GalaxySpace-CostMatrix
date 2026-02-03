@@ -4,6 +4,7 @@
 from pathlib import Path
 from typing import List
 import os
+import json
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
@@ -19,6 +20,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_INITIAL_PASSWORD_FILE = BASE_DIR.parent / "config" / "initial_admin_password.txt"
 
 
+def _safe_json_loads(value):
+    """Be tolerant of non-JSON env values for complex fields.
+
+    Pydantic will try to JSON-decode values for complex types (e.g. List[str])
+    before validators run. In our deployments we often set `ALLOWED_ORIGINS`
+    as a simple comma-separated string; that raises `JSONDecodeError` during
+    the pre-parsing step. Returning the raw value on decode failure lets our
+    field validator handle the flexible formats we support.
+    """
+
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if not stripped:
+        return value
+
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
 class Settings(BaseSettings):
     """应用配置类"""
 
@@ -27,6 +51,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        json_loads=_safe_json_loads,
     )
 
     app_name: str = "CostMatrix"
