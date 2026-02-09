@@ -41,7 +41,7 @@ costmatrix-<version>/
    ```bash
    cd /opt/costmatrix-20260209
    cp .env.example .env
-   # 按需修改端口、SECRET_KEY、ALLOWED_ORIGINS 等
+   # 按需修改端口、SECRET_KEY、ALLOWED_ORIGINS 等（推荐 JSON 数组格式）
    ```
 3) 启动（离线自动加载镜像）：
    ```bash
@@ -71,7 +71,9 @@ costmatrix-<version>/
 - `IMAGE_TAG`：镜像版本（与发布包一致），不建议修改
 - `BACKEND_IMAGE` / `FRONTEND_IMAGE`：镜像名称
 - `BACKEND_PORT` / `FRONTEND_PORT`：宿主暴露端口
-- `ALLOWED_ORIGINS`：前端访问源，逗号分隔
+- `ALLOWED_ORIGINS`：前端访问源，支持 JSON 数组或逗号分隔
+  - 推荐：`["http://<frontend-host>:8180"]`
+  - 兼容：`http://<frontend-host>:8180,http://localhost:8180`
 - `SECRET_KEY`：JWT 加密秘钥，必须改为公司随机值
 - `INITIAL_ADMIN_PASSWORD_FILE`：初始管理员密码文件路径，默认 `config/initial_admin_password.txt`
 - `UPLOAD_DIR`：上传目录（默认 `/app/uploads`，映射到宿主 `data/uploads`）

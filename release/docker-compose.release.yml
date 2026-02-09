@@ -8,7 +8,6 @@ services:
       - ./.env
     environment:
       - DEBUG=${DEBUG:-false}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8180}
       - SECRET_KEY=${SECRET_KEY:-change-me}
       - INITIAL_ADMIN_PASSWORD_FILE=${INITIAL_ADMIN_PASSWORD_FILE:-/app/config/initial_admin_password.txt}
       - UPLOAD_DIR=${UPLOAD_DIR:-/app/uploads}

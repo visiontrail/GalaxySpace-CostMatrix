@@ -2,12 +2,12 @@
 应用配置模块
 """
 from pathlib import Path
-from typing import List
+from typing import Annotated, List
 import os
 import json
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic import Field, field_validator
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -20,29 +20,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_INITIAL_PASSWORD_FILE = BASE_DIR.parent / "config" / "initial_admin_password.txt"
 
 
-def _safe_json_loads(value):
-    """Be tolerant of non-JSON env values for complex fields.
-
-    Pydantic will try to JSON-decode values for complex types (e.g. List[str])
-    before validators run. In our deployments we often set `ALLOWED_ORIGINS`
-    as a simple comma-separated string; that raises `JSONDecodeError` during
-    the pre-parsing step. Returning the raw value on decode failure lets our
-    field validator handle the flexible formats we support.
-    """
-
-    if not isinstance(value, str):
-        return value
-
-    stripped = value.strip()
-    if not stripped:
-        return value
-
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return value
-
-
 class Settings(BaseSettings):
     """应用配置类"""
 
@@ -51,7 +28,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
-        json_loads=_safe_json_loads,
     )
 
     app_name: str = "CostMatrix"
@@ -59,7 +35,10 @@ class Settings(BaseSettings):
     debug: bool = True
 
     # CORS 配置
-    allowed_origins: List[str] = DEFAULT_ALLOWED_ORIGINS.copy()
+    # Keep raw env value and parse in validator so CSV and JSON array are both supported.
+    allowed_origins: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: DEFAULT_ALLOWED_ORIGINS.copy()
+    )
 
     # 认证配置
     secret_key: str = "change-me-in-env"
@@ -76,11 +55,34 @@ class Settings(BaseSettings):
     @classmethod
     def split_origins(cls, value):
         """
-        支持通过环境变量 ALLOWED_ORIGINS 以逗号分隔配置，保持默认值不变。
+        支持通过环境变量 ALLOWED_ORIGINS 配置：
+        1) 逗号分隔字符串: a,b,c
+        2) JSON 数组字符串: ["a","b","c"]
         """
+        if value is None:
+            return DEFAULT_ALLOWED_ORIGINS.copy()
+
         if isinstance(value, str):
-            origins = [origin.strip() for origin in value.split(",") if origin.strip()]
-            return origins or DEFAULT_ALLOWED_ORIGINS
+            stripped = value.strip()
+            if not stripped:
+                return DEFAULT_ALLOWED_ORIGINS.copy()
+
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError:
+                    parsed = None
+                if isinstance(parsed, list):
+                    origins = [str(origin).strip() for origin in parsed if str(origin).strip()]
+                    return origins or DEFAULT_ALLOWED_ORIGINS.copy()
+
+            origins = [origin.strip() for origin in stripped.split(",") if origin.strip()]
+            return origins or DEFAULT_ALLOWED_ORIGINS.copy()
+
+        if isinstance(value, (list, tuple, set)):
+            origins = [str(origin).strip() for origin in value if str(origin).strip()]
+            return origins or DEFAULT_ALLOWED_ORIGINS.copy()
+
         return value
 
 

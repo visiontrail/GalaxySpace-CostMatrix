@@ -38,10 +38,18 @@ echo "2) Build frontend image (${FRONTEND_IMAGE}:${VERSION})"
 docker build -f frontend/Dockerfile -t "${FRONTEND_IMAGE}:${VERSION}" frontend
 
 if [ "${SKIP_SMOKE_TEST}" != "1" ]; then
-  echo "3) Run backend smoke test"
+  echo "3) Run backend smoke tests"
   docker run --rm "${BACKEND_IMAGE}:${VERSION}" python -c "import app.main;print('ok')"
+  docker run --rm \
+    -e ALLOWED_ORIGINS='http://localhost:8180,http://localhost:5173' \
+    "${BACKEND_IMAGE}:${VERSION}" \
+    python -c "import app.main;print('ok-csv')"
+  docker run --rm \
+    -e ALLOWED_ORIGINS='["http://localhost:8180","http://localhost:5173"]' \
+    "${BACKEND_IMAGE}:${VERSION}" \
+    python -c "import app.main;print('ok-json')"
 else
-  echo "3) Skip backend smoke test (SKIP_SMOKE_TEST=1)"
+  echo "3) Skip backend smoke tests (SKIP_SMOKE_TEST=1)"
 fi
 
 echo "4) Save images for offline install"
