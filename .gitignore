@@ -88,4 +88,6 @@ verify_implementation.py
 # Scripts directories
 backend/scripts/
 
+# Release artifacts
+release/packages/
 

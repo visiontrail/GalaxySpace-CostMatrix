@@ -2,9 +2,12 @@
 
 本目录包含 CostMatrix 的 Docker 部署相关脚本。
 
+> 说明：本目录脚本用于开发/联调环境。  
+> 生产离线发布（`docker save` + `load + up`）请使用 `scripts/release/make_release.sh` 生成发布包，并按 `release/DEPLOY.md` 执行。
+
 ## 脚本说明
 
-### `deploy.sh` - 一键部署脚本
+### `deploy.sh` - 一键部署脚本（开发环境）
 构建 Docker 镜像并启动所有服务。
 
 **功能：**
@@ -17,6 +20,10 @@
 **使用场景：**
 - 首次部署
 - 需要完全重新构建镜像（如修改依赖、Dockerfile 等）
+- 本地开发调试
+
+**不适用：**
+- 生产离线发布（该脚本会执行 `docker compose build --no-cache`）
 
 **示例：**
 ```bash
@@ -98,7 +105,7 @@
 
 ## 使用流程
 
-### 首次部署
+### 首次部署（开发）
 ```bash
 # 1. 检查配置
 ./scripts/docker/test-deployment.sh
@@ -174,6 +181,7 @@ scripts/docker/
 2. **交互式询问**：`stop.sh` 使用交互式询问，而非命令行参数，更加友好
 3. **依赖变更检测**：`restart-dev.sh` 会自动检测依赖变更，避免遗漏重新构建
 4. **容器数据**：删除容器会清除容器内所有数据，请谨慎操作
+5. **生产部署**：请勿用本目录脚本，改用 `./scripts/release/make_release.sh` + 发布包内 `./scripts/up.sh`
 
 ---
 
