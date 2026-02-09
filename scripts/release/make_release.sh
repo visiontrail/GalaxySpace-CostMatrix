@@ -48,6 +48,39 @@ if [ "${SKIP_SMOKE_TEST}" != "1" ]; then
     -e ALLOWED_ORIGINS='["http://localhost:8180","http://localhost:5173"]' \
     "${BACKEND_IMAGE}:${VERSION}" \
     python -c "import app.main;print('ok-json')"
+
+  echo "3.1) Run backend runtime smoke test (multi-worker startup)"
+  SMOKE_CONTAINER="costmatrix-backend-smoke-${VERSION//[^a-zA-Z0-9_.-]/-}"
+  docker rm -f "${SMOKE_CONTAINER}" >/dev/null 2>&1 || true
+  docker run -d \
+    --name "${SMOKE_CONTAINER}" \
+    -e ALLOWED_ORIGINS='http://localhost:8180,http://localhost:5173' \
+    "${BACKEND_IMAGE}:${VERSION}" >/dev/null
+
+  READY=0
+  for _ in $(seq 1 40); do
+    if docker exec "${SMOKE_CONTAINER}" python -c "import urllib.request,sys;sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/').status==200 else sys.exit(1)" >/dev/null 2>&1; then
+      READY=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "${READY}" != "1" ]; then
+    echo "Backend runtime smoke test failed: service did not become healthy." >&2
+    docker logs "${SMOKE_CONTAINER}" || true
+    docker rm -f "${SMOKE_CONTAINER}" >/dev/null 2>&1 || true
+    exit 1
+  fi
+
+  if docker logs "${SMOKE_CONTAINER}" 2>&1 | grep -q "Application startup failed"; then
+    echo "Backend runtime smoke test failed: startup errors detected in logs." >&2
+    docker logs "${SMOKE_CONTAINER}" || true
+    docker rm -f "${SMOKE_CONTAINER}" >/dev/null 2>&1 || true
+    exit 1
+  fi
+
+  docker rm -f "${SMOKE_CONTAINER}" >/dev/null 2>&1 || true
 else
   echo "3) Skip backend smoke tests (SKIP_SMOKE_TEST=1)"
 fi

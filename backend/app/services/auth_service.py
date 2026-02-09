@@ -9,6 +9,7 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -82,7 +83,15 @@ def ensure_initial_admin(db: Session) -> User:
         is_active=True,
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 多 worker 并发启动时，可能有其他进程已创建同名管理员。
+        db.rollback()
+        existing_user = db.query(User).filter(User.username == username).first()
+        if existing_user:
+            return existing_user
+        raise
     db.refresh(user)
     logger.info(f"默认管理员已创建: {username}")
     return user

@@ -1,7 +1,7 @@
 """Database connection and initialization for CostMatrix."""
-import os
 from pathlib import Path
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from app.config import settings
@@ -33,7 +33,14 @@ def init_db():
     try:
         from app.db.models import Base
 
-        Base.metadata.create_all(bind=engine)
+        try:
+            Base.metadata.create_all(bind=engine)
+        except OperationalError as exc:
+            # Multiple Uvicorn workers may run startup concurrently. If another
+            # worker has created tables first, treat "already exists" as benign.
+            if "already exists" not in str(exc).lower():
+                raise
+            logger.warning(f"Concurrent schema initialization detected, skipping duplicate DDL: {exc}")
 
         with engine.connect() as conn:
             conn.execute(text("PRAGMA journal_mode=DELETE"))
