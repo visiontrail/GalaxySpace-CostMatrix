@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     max_upload_size: int = 50  # MB
 
+    # 数据库配置
+    # 优先读取完整连接串 DATABASE_URL，否则根据 DB_* 自动拼接
+    database_url: str = ""
+    db_type: str = "sqlite"  # sqlite / mysql
+    db_host: str = "127.0.0.1"
+    db_port: int = 3306
+    db_name: str = "costmatrix"
+    db_user: str = "root"
+    db_password: str = ""
+    db_charset: str = "utf8mb4"
+
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def split_origins(cls, value):
@@ -84,6 +95,19 @@ class Settings(BaseSettings):
             return origins or DEFAULT_ALLOWED_ORIGINS.copy()
 
         return value
+
+    @field_validator("db_type", mode="before")
+    @classmethod
+    def normalize_db_type(cls, value):
+        """Normalize DB type and keep a safe default."""
+        if value is None:
+            return "sqlite"
+        db_type = str(value).strip().lower()
+        if not db_type:
+            return "sqlite"
+        if db_type not in {"sqlite", "mysql"}:
+            raise ValueError("DB_TYPE 仅支持 sqlite 或 mysql")
+        return db_type
 
 
 settings = Settings()

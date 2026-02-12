@@ -2,7 +2,7 @@
 from datetime import datetime
 from sqlalchemy import (
     String, Integer, Numeric, DateTime, ForeignKey, Boolean,
-    Index, CheckConstraint, text
+    Index, CheckConstraint, func
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -27,7 +27,7 @@ class User(Base):
         nullable=False,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        server_default=text("(DATETIME('now'))"),
+        server_default=func.now(),
     )
 
     __table_args__ = (

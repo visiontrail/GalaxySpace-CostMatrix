@@ -96,6 +96,18 @@ DEBUG=True
 ALLOWED_ORIGINS=http://localhost:5173
 UPLOAD_DIR=./uploads
 MAX_UPLOAD_SIZE=50
+
+# 数据库（推荐 MySQL）
+DB_TYPE=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=costmatrix
+DB_USER=root
+DB_PASSWORD=your_password
+DB_CHARSET=utf8mb4
+
+# 或直接使用完整连接串（优先级更高）
+# DATABASE_URL=mysql+pymysql://root:your_password@127.0.0.1:3306/costmatrix?charset=utf8mb4
 ```
 
 ## 测试
@@ -142,5 +154,4 @@ WantedBy=multi-user.target
 ## License
 
 MIT
-
 

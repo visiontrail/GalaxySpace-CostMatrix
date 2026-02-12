@@ -35,6 +35,28 @@ def _date_range_filter(column, ranges: List[Tuple[datetime, datetime]]):
     return or_(*[and_(column >= start, column <= end) for start, end in ranges])
 
 
+def _month_expr(db: Session, column):
+    """Return a DB-specific YYYY-MM expression for a datetime column."""
+    bind = db.get_bind()
+    dialect_name = (bind.dialect.name if bind else "").lower()
+    if dialect_name.startswith("mysql"):
+        return func.date_format(column, "%Y-%m")
+    return func.strftime("%Y-%m", column)
+
+
+def _month_in_filter(db: Session, column, months: List[str]):
+    """Build month IN filter compatible with sqlite/mysql."""
+    valid_months = [month for month in months if month]
+    if not valid_months:
+        return None
+    return _month_expr(db, column).in_(valid_months)
+
+
+def _month_equals_filter(db: Session, column, month: str):
+    """Build month equality filter compatible with sqlite/mysql."""
+    return _month_expr(db, column) == month
+
+
 def _unknown_status_condition(status_column):
     """SQL condition for unknown/empty attendance status."""
     trimmed = func.trim(status_column)
@@ -460,9 +482,9 @@ def get_dashboard_summary(
     where_clauses = [TravelExpense.upload_id == upload.id]
 
     if months:
-        month_placeholders = ','.join([f':month_{i}' for i in range(len(months))])
-        params = {f'month_{i}': month for i, month in enumerate(months)}
-        where_clauses.append(text(f"strftime('%Y-%m', TravelExpense.date) IN ({month_placeholders})").bindparams(**params))
+        month_filter = _month_in_filter(db, TravelExpense.date, months)
+        if month_filter is not None:
+            where_clauses.append(month_filter)
     elif quarter and year:
         where_clauses.extend([
             func.extract('quarter', TravelExpense.date) == quarter,
@@ -479,9 +501,9 @@ def get_dashboard_summary(
 
     attendance_where = [AttendanceRecord.upload_id == upload.id]
     if months:
-        month_placeholders = ','.join([f':month_{i}' for i in range(len(months))])
-        params = {f'month_{i}': month for i, month in enumerate(months)}
-        attendance_where.append(text(f"strftime('%Y-%m', date) IN ({month_placeholders})").bindparams(**params))
+        month_filter = _month_in_filter(db, AttendanceRecord.date, months)
+        if month_filter is not None:
+            attendance_where.append(month_filter)
     elif quarter and year:
         attendance_where.extend([
             func.extract('quarter', AttendanceRecord.date) == quarter,
@@ -521,9 +543,9 @@ def get_anomalies(
     where_clauses = [Anomaly.upload_id == upload.id]
 
     if months:
-        month_placeholders = ','.join([f':month_{i}' for i in range(len(months))])
-        params = {f'month_{i}': month for i, month in enumerate(months)}
-        where_clauses.append(text(f"strftime('%Y-%m', date) IN ({month_placeholders})").bindparams(**params))
+        month_filter = _month_in_filter(db, Anomaly.date, months)
+        if month_filter is not None:
+            where_clauses.append(month_filter)
     elif quarter and year:
         where_clauses.extend([
             func.extract('quarter', Anomaly.date) == quarter,
@@ -557,11 +579,12 @@ def get_available_months(db: Session, file_path: str) -> List[str]:
     if not upload:
         return []
 
+    month_expr = _month_expr(db, AttendanceRecord.date)
     result = db.query(
-        func.distinct(text("strftime('%Y-%m', date)")).label('month')
+        month_expr.label('month')
     ).filter(
         AttendanceRecord.upload_id == upload.id
-    ).order_by('month').all()
+    ).distinct().order_by(month_expr).all()
 
     return [row.month for row in result]
 
@@ -597,7 +620,7 @@ def get_project_total_cost_by_month(
         and_(
             TravelExpense.upload_id == upload.id,
             Project.code == project_code,
-            text(f"strftime('%Y-%m', fact_travel_expense.date) = :month").bindparams(month=month)
+            _month_equals_filter(db, TravelExpense.date, month)
         )
     ).first()
 
@@ -721,9 +744,9 @@ def get_department_stats(
     where_clauses = [TravelExpense.upload_id == upload.id]
 
     if months:
-        month_placeholders = ','.join([f':month_{i}' for i in range(len(months))])
-        params = {f'month_{i}': month for i, month in enumerate(months)}
-        where_clauses.append(text(f"strftime('%Y-%m', TravelExpense.date) IN ({month_placeholders})").bindparams(**params))
+        month_filter = _month_in_filter(db, TravelExpense.date, months)
+        if month_filter is not None:
+            where_clauses.append(month_filter)
     elif quarter and year:
         where_clauses.extend([
             func.extract('quarter', TravelExpense.date) == quarter,
@@ -751,9 +774,9 @@ def get_department_stats(
 
     attendance_where = [AttendanceRecord.upload_id == upload.id]
     if months:
-        month_placeholders = ','.join([f':month_{i}' for i in range(len(months))])
-        params = {f'month_{i}': month for i, month in enumerate(months)}
-        attendance_where.append(text(f"strftime('%Y-%m', date) IN ({month_placeholders})").bindparams(**params))
+        month_filter = _month_in_filter(db, AttendanceRecord.date, months)
+        if month_filter is not None:
+            attendance_where.append(month_filter)
     elif quarter and year:
         attendance_where.extend([
             func.extract('quarter', AttendanceRecord.date) == quarter,
@@ -809,9 +832,9 @@ def get_project_stats(
     where_clauses = [TravelExpense.upload_id == upload.id]
 
     if months:
-        month_placeholders = ','.join([f':month_{i}' for i in range(len(months))])
-        params = {f'month_{i}': month for i, month in enumerate(months)}
-        where_clauses.append(text(f"strftime('%Y-%m', TravelExpense.date) IN ({month_placeholders})").bindparams(**params))
+        month_filter = _month_in_filter(db, TravelExpense.date, months)
+        if month_filter is not None:
+            where_clauses.append(month_filter)
     elif quarter and year:
         where_clauses.extend([
             func.extract('quarter', TravelExpense.date) == quarter,
@@ -866,9 +889,9 @@ def get_total_project_count(
     where_clauses = [TravelExpense.upload_id == upload.id]
 
     if months:
-        month_placeholders = ','.join([f':month_{i}' for i in range(len(months))])
-        params = {f'month_{i}': month for i, month in enumerate(months)}
-        where_clauses.append(text(f"strftime('%Y-%m', TravelExpense.date) IN ({month_placeholders})").bindparams(**params))
+        month_filter = _month_in_filter(db, TravelExpense.date, months)
+        if month_filter is not None:
+            where_clauses.append(month_filter)
     elif quarter and year:
         where_clauses.extend([
             func.extract('quarter', TravelExpense.date) == quarter,
@@ -1132,76 +1155,104 @@ def get_department_detail_metrics(
         AttendanceRecord.is_late_after_1930 == True
     ).scalar() or 0
 
-    # Query 7: All rankings in single CTE query (most efficient approach)
-    # We need to dynamically build the WHERE clause based on the department level
-    where_clause = ""
-    if level == 1:
-        where_clause = "e.department_id = :dept_id"
-    elif level == 2:
-        where_clause = "e.level2_department_id = :dept_id"
-    else:
-        where_clause = "e.level3_department_id = :dept_id"
+    # Query 7: Rankings by person (cross-database compatible implementation)
+    travel_ranking_rows = db.query(
+        Employee.name.label('name'),
+        func.sum(case((AttendanceRecord.status == '出差', 1), else_=0)).label('travel_days')
+    ).join(
+        AttendanceRecord, AttendanceRecord.employee_id == Employee.id
+    ).filter(
+        dept_field == dept.id,
+        AttendanceRecord.upload_id == upload.id
+    ).group_by(
+        Employee.name
+    ).order_by(
+        func.sum(case((AttendanceRecord.status == '出差', 1), else_=0)).desc(),
+        Employee.name.asc()
+    ).limit(10).all()
 
-    rankings_query = text(f"""
-    WITH travel_counts AS (
-        SELECT
-            e.name,
-            COUNT(CASE WHEN a.status = '出差' THEN 1 END) as travel_days,
-            RANK() OVER (ORDER BY COUNT(CASE WHEN a.status = '出差' THEN 1 END) DESC) as travel_rank
-        FROM fact_attendance a
-        JOIN dim_employee e ON a.employee_id = e.id
-        WHERE {where_clause} AND a.upload_id = :upload_id
-        GROUP BY e.name
-    ),
-    anomaly_counts AS (
-        SELECT
-            e.name,
-            COUNT(*) as anomaly_count,
-            RANK() OVER (ORDER BY COUNT(*) DESC) as anomaly_rank
-        FROM anomalies an
-        JOIN dim_employee e ON an.employee_id = e.id
-        WHERE {where_clause} AND an.upload_id = :upload_id AND an.anomaly_type = 'A'
-        GROUP BY e.name
-    ),
-    avg_hours_by_person AS (
-        SELECT
-            e.name,
-            AVG(a.work_hours) as avg_hours,
-            RANK() OVER (ORDER BY AVG(a.work_hours) DESC) as hours_rank
-        FROM fact_attendance a
-        JOIN dim_employee e ON a.employee_id = e.id
-        WHERE {where_clause} AND a.upload_id = :upload_id
-              AND a.status = '上班' AND a.work_hours IS NOT NULL AND a.work_hours != 0
-        GROUP BY e.name
-    ),
-    latest_checkout AS (
-        SELECT
-            e.name,
-            a.latest_punch_time,
-            RANK() OVER (ORDER BY a.latest_punch_time DESC) as checkout_rank
-        FROM fact_attendance a
-        JOIN dim_employee e ON a.employee_id = e.id
-        WHERE {where_clause} AND a.upload_id = :upload_id
-              AND a.latest_punch_time IS NOT NULL
-        GROUP BY e.name, a.latest_punch_time
-    )
-    SELECT
-        (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', travel_days, 'detail', travel_days || '天'))
-         FROM travel_counts WHERE travel_rank <= 10) as travel_ranking,
-        (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', anomaly_count, 'detail', anomaly_count || '人天'))
-         FROM anomaly_counts WHERE anomaly_rank <= 10) as anomaly_ranking,
-        (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', ROUND(avg_hours, 2), 'detail', ROUND(avg_hours, 2) || '小时'))
-         FROM avg_hours_by_person WHERE hours_rank <= 10) as longest_hours_ranking,
-        (SELECT JSON_GROUP_ARRAY(json_object('name', name, 'value', 0, 'detail', latest_punch_time))
-         FROM latest_checkout WHERE checkout_rank <= 10) as latest_checkout_ranking
-    """)
+    anomaly_ranking_rows = db.query(
+        Employee.name.label('name'),
+        func.count(Anomaly.id).label('anomaly_count')
+    ).join(
+        Anomaly, Anomaly.employee_id == Employee.id
+    ).filter(
+        dept_field == dept.id,
+        Anomaly.upload_id == upload.id,
+        Anomaly.anomaly_type == 'A'
+    ).group_by(
+        Employee.name
+    ).order_by(
+        func.count(Anomaly.id).desc(),
+        Employee.name.asc()
+    ).limit(10).all()
 
-    result = db.execute(rankings_query, {'dept_id': dept.id, 'upload_id': upload.id}).first()
+    longest_hours_rows = db.query(
+        Employee.name.label('name'),
+        func.avg(AttendanceRecord.work_hours).label('avg_hours')
+    ).join(
+        AttendanceRecord, AttendanceRecord.employee_id == Employee.id
+    ).filter(
+        dept_field == dept.id,
+        AttendanceRecord.upload_id == upload.id,
+        AttendanceRecord.status == '上班',
+        AttendanceRecord.work_hours.isnot(None),
+        AttendanceRecord.work_hours != 0
+    ).group_by(
+        Employee.name
+    ).order_by(
+        func.avg(AttendanceRecord.work_hours).desc(),
+        Employee.name.asc()
+    ).limit(10).all()
 
-    travel_ranking = json.loads(result.travel_ranking or '[]')
-    anomaly_ranking = json.loads(result.anomaly_ranking or '[]')
-    longest_hours_ranking = json.loads(result.longest_hours_ranking or '[]')
-    latest_checkout_ranking = json.loads(result.latest_checkout_ranking or '[]')
+    latest_checkout_rows = db.query(
+        Employee.name.label('name'),
+        func.max(AttendanceRecord.latest_punch_time).label('latest_punch_time')
+    ).join(
+        AttendanceRecord, AttendanceRecord.employee_id == Employee.id
+    ).filter(
+        dept_field == dept.id,
+        AttendanceRecord.upload_id == upload.id,
+        AttendanceRecord.latest_punch_time.isnot(None)
+    ).group_by(
+        Employee.name
+    ).order_by(
+        func.max(AttendanceRecord.latest_punch_time).desc(),
+        Employee.name.asc()
+    ).limit(10).all()
+
+    travel_ranking = [
+        {
+            'name': row.name,
+            'value': int(row.travel_days or 0),
+            'detail': f"{int(row.travel_days or 0)}天",
+        }
+        for row in travel_ranking_rows
+    ]
+    anomaly_ranking = [
+        {
+            'name': row.name,
+            'value': int(row.anomaly_count or 0),
+            'detail': f"{int(row.anomaly_count or 0)}人天",
+        }
+        for row in anomaly_ranking_rows
+    ]
+    longest_hours_ranking = [
+        {
+            'name': row.name,
+            'value': round(float(row.avg_hours or 0), 2),
+            'detail': f"{round(float(row.avg_hours or 0), 2):.2f}小时",
+        }
+        for row in longest_hours_rows
+    ]
+    latest_checkout_ranking = [
+        {
+            'name': row.name,
+            'value': 0,
+            'detail': row.latest_punch_time,
+        }
+        for row in latest_checkout_rows
+    ]
 
     return {
         'department_name': department_name,
@@ -2864,14 +2915,14 @@ def delete_month_data(db: Session, month: str) -> dict:
     attendance_uploads = db.query(Upload.id).join(
         AttendanceRecord, Upload.id == AttendanceRecord.upload_id
     ).filter(
-        text(f"strftime('%Y-%m', fact_attendance.date) = :month")
-    ).params(month=month).distinct().all()
+        _month_equals_filter(db, AttendanceRecord.date, month)
+    ).distinct().all()
 
     travel_uploads = db.query(Upload.id).join(
         TravelExpense, Upload.id == TravelExpense.upload_id
     ).filter(
-        text(f"strftime('%Y-%m', fact_travel_expense.date) = :month")
-    ).params(month=month).distinct().all()
+        _month_equals_filter(db, TravelExpense.date, month)
+    ).distinct().all()
 
     # Combine upload IDs from both sources using set to avoid duplicates
     upload_ids_set = set()
@@ -2895,20 +2946,20 @@ def delete_month_data(db: Session, month: str) -> dict:
     # Delete attendance records for this month
     attendance_deleted = db.query(AttendanceRecord).filter(
         AttendanceRecord.upload_id.in_(upload_ids),
-        text(f"strftime('%Y-%m', fact_attendance.date) = :month")
-    ).params(month=month).delete(synchronize_session=False)
+        _month_equals_filter(db, AttendanceRecord.date, month)
+    ).delete(synchronize_session=False)
 
     # Delete travel expenses for this month
     travel_deleted = db.query(TravelExpense).filter(
         TravelExpense.upload_id.in_(upload_ids),
-        text(f"strftime('%Y-%m', fact_travel_expense.date) = :month")
-    ).params(month=month).delete(synchronize_session=False)
+        _month_equals_filter(db, TravelExpense.date, month)
+    ).delete(synchronize_session=False)
 
     # Delete anomalies for this month
     anomalies_deleted = db.query(Anomaly).filter(
         Anomaly.upload_id.in_(upload_ids),
-        text(f"strftime('%Y-%m', anomalies.date) = :month")
-    ).params(month=month).delete(synchronize_session=False)
+        _month_equals_filter(db, Anomaly.date, month)
+    ).delete(synchronize_session=False)
 
     # Check which uploads now have no data and delete them along with their files
     deleted_uploads = []

@@ -10,6 +10,7 @@ numpy>=1.26.0
 xlrd>=2.0.1
 Pillow>=10.0.0
 sqlalchemy>=2.0.0
+pymysql>=1.1.0
 passlib[bcrypt]>=1.7.4
 PyJWT>=2.8.0
 # bcrypt 4.1+ dropped __about__.__version__, which passlib 1.7.x expects.

@@ -9,10 +9,8 @@
     python migrate_database.py
 """
 
-import os
 import shutil
-from pathlib import Path
-from app.db.database import DB_PATH, init_db
+from app.db.database import DB_BACKEND, DATABASE_URL, DB_PATH, init_db
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -20,6 +18,13 @@ logger = get_logger(__name__)
 
 def migrate_database():
     """执行数据库迁移：删除旧数据库并重新初始化"""
+    if DB_BACKEND != "sqlite" or DB_PATH is None:
+        logger.error(
+            "当前数据库不是 SQLite，本脚本仅支持 SQLite 文件迁移。"
+            f"当前连接: {DATABASE_URL}"
+        )
+        return
+
     backup_dir = DB_PATH.parent / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
 
