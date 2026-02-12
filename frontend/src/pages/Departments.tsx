@@ -15,6 +15,7 @@ import {
   Space,
   Typography,
   Descriptions,
+  message,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -27,20 +28,22 @@ import type { EChartsOption } from 'echarts'
 import type {
   DepartmentListItem,
   DepartmentDetailMetrics,
+  Level1DepartmentStatistics,
+  Level2DepartmentStatistics,
 } from '@/types'
 import {
   getDepartmentList,
   getDepartmentDetails,
   getLevel1DepartmentStatistics,
+  getLevel2DepartmentStatistics,
 } from '@/services/api'
-import { useOutletContext } from 'react-router-dom'
-import type { UploadContextValue } from '@/layouts/MainLayout'
+import { useMonthContext } from '@/contexts/MonthContext'
 
 const { Title } = Typography
 
 const Departments = () => {
   const navigate = useNavigate()
-  const { selectedUpload } = useOutletContext<UploadContextValue>()
+  const { selectedMonths } = useMonthContext()
 
   const [loading, setLoading] = useState(false)
   const [detailsLoading, setDetailsLoading] = useState(false)
@@ -51,66 +54,104 @@ const Departments = () => {
   const [departments, setDepartments] = useState<DepartmentListItem[]>([])
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentDetailMetrics | null>(null)
-  const [level1Statistics, setLevel1Statistics] = useState<any>(null)
-
-  const filePath = selectedUpload?.file_path || localStorage.getItem('current_file') || ''
+  const [level1Statistics, setLevel1Statistics] = useState<Level1DepartmentStatistics | null>(null)
+  const [level2Statistics, setLevel2Statistics] = useState<Level2DepartmentStatistics | null>(null)
 
   useEffect(() => {
-    if (filePath) {
-      loadDepartments(1)
+    if (selectedMonths.length === 0) {
+      setDepartments([])
+      return
     }
-  }, [filePath])
+
+    if (currentLevel === 1) {
+      loadDepartments(1)
+    } else if (currentLevel === 2 && selectedLevel1) {
+      loadDepartments(2, selectedLevel1)
+    } else if (currentLevel === 3 && selectedLevel2) {
+      loadDepartments(3, selectedLevel2)
+    }
+  }, [selectedMonths])
 
   // 当进入二级部门页面时，加载一级部门统计数据
   useEffect(() => {
-    if (currentLevel === 2 && selectedLevel1 && filePath) {
+    if (currentLevel === 2 && selectedLevel1 && selectedMonths.length > 0) {
       loadLevel1Statistics(selectedLevel1)
     } else {
       setLevel1Statistics(null)
     }
-  }, [currentLevel, selectedLevel1, filePath])
+  }, [currentLevel, selectedLevel1, selectedMonths])
+
+  useEffect(() => {
+    if (currentLevel === 3 && selectedLevel2 && selectedMonths.length > 0) {
+      loadLevel2Statistics(selectedLevel2)
+    } else {
+      setLevel2Statistics(null)
+    }
+  }, [currentLevel, selectedLevel2, selectedMonths])
 
   const loadLevel1Statistics = async (level1Name: string) => {
-    if (!filePath) return
+    if (selectedMonths.length === 0) return
     setStatsLoading(true)
     try {
-      const result = await getLevel1DepartmentStatistics(filePath, level1Name)
+      const result = await getLevel1DepartmentStatistics('', level1Name, selectedMonths)
       if (result.success && result.data) {
         setLevel1Statistics(result.data)
       }
     } catch (error: any) {
-      console.error('加载一级部门统计数据失败:', error)
+      message.error('加载一级部门统计数据失败')
+    } finally {
+      setStatsLoading(false)
+    }
+  }
+
+  const loadLevel2Statistics = async (level2Name: string) => {
+    if (selectedMonths.length === 0) return
+    setStatsLoading(true)
+    try {
+      const result = await getLevel2DepartmentStatistics('', level2Name, selectedMonths)
+      if (result.success && result.data) {
+        setLevel2Statistics(result.data)
+      }
+    } catch (error: any) {
+      message.error('加载二级部门统计数据失败')
     } finally {
       setStatsLoading(false)
     }
   }
 
   const loadDepartments = async (level: 1 | 2 | 3, parent?: string) => {
-    if (!filePath) return
+    if (selectedMonths.length === 0) {
+      return
+    }
+
     setLoading(true)
     try {
-      const result = await getDepartmentList(filePath, level, parent)
+      // 调用API时不传file_path，传递months参数从数据库获取数据
+      const result = await getDepartmentList('', level, parent, selectedMonths)
       if (result.success && result.data) {
         setDepartments(result.data.departments || [])
       }
     } catch (error: any) {
-      console.error('加载部门列表失败:', error)
+      message.error('加载部门列表失败')
     } finally {
       setLoading(false)
     }
   }
 
   const loadDepartmentDetails = async (deptName: string, level: number) => {
-    if (!filePath) return
+    if (selectedMonths.length === 0) {
+      return
+    }
+
     setDetailsLoading(true)
     try {
-      const result = await getDepartmentDetails(filePath, deptName, level)
+      const result = await getDepartmentDetails('', deptName, level, selectedMonths)
       if (result.success && result.data) {
         setSelectedDepartment(result.data)
         setDrawerVisible(true)
       }
     } catch (error: any) {
-      console.error('加载部门详情失败:', error)
+      message.error('加载部门详情失败')
     } finally {
       setDetailsLoading(false)
     }
@@ -159,19 +200,61 @@ const Departments = () => {
     }
   }
 
+  // 空状态 - 没有选择月份
+  if (selectedMonths.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '100px 0' }}>
+        <Empty description="请从左侧选择月份查看部门数据" />
+      </div>
+    )
+  }
+
   // 面包屑导航
   const breadcrumbItems = [
-    { title: '首页' },
+    {
+      key: 'home',
+      title: <a onClick={() => navigate('/')}>首页</a>,
+    },
   ]
   if (currentLevel >= 1) {
-    breadcrumbItems.push({ title: '部门管理' })
+    breadcrumbItems.push({
+      key: 'departments',
+      title: currentLevel > 1 ? <a onClick={() => handleBreadcrumbClick(1)}>部门管理</a> : <span>部门管理</span>,
+    })
   }
   if (currentLevel >= 2 && selectedLevel1) {
-    breadcrumbItems.push({ title: selectedLevel1 })
+    breadcrumbItems.push({
+      key: `level1-${selectedLevel1}`,
+      title: currentLevel > 2 ? <a onClick={() => handleBreadcrumbClick(2)}>{selectedLevel1}</a> : <span>{selectedLevel1}</span>,
+    })
   }
   if (currentLevel === 3 && selectedLevel2) {
-    breadcrumbItems.push({ title: selectedLevel2 })
+    breadcrumbItems.push({
+      key: `level2-${selectedLevel2}`,
+      title: <span>{selectedLevel2}</span>,
+    })
   }
+
+  const formatMonthDisplay = (month: string) => {
+    const [year, monthNum] = month.split('-')
+    return `${year}年${monthNum}月`
+  }
+
+  const departmentStatsColumns = [
+    { title: '部门名称', dataIndex: 'name', key: 'name' },
+    { title: '人数', dataIndex: 'person_count', key: 'person_count', render: (v: number) => `${v}人` },
+    { title: '工作日出勤（人天）', dataIndex: 'workday_attendance_days', key: 'workday_attendance_days', render: (v: number) => `${v}人天` },
+    { title: '公休日上班（人天）', dataIndex: 'weekend_work_days', key: 'weekend_work_days', render: (v: number) => `${v}人天` },
+    { title: '出差（人天）', dataIndex: 'travel_days', key: 'travel_days', render: (v: number) => `${v}人天` },
+    { title: '请假（人天）', dataIndex: 'leave_days', key: 'leave_days', render: (v: number) => `${v}人天` },
+    { title: '未知天数（疑似异常）', dataIndex: 'anomaly_days', key: 'anomaly_days', render: (v: number) => `${v}人天` },
+    { title: '晚上7:30后下班人数', dataIndex: 'late_after_1930_count', key: 'late_after_1930_count', render: (v: number) => `${v}人` },
+    { title: '工作日平均工时', dataIndex: 'avg_work_hours', key: 'avg_work_hours', render: (v: number) => `${v.toFixed(1)}h` },
+    { title: '节假日平均工时', dataIndex: 'holiday_avg_work_hours', key: 'holiday_avg_work_hours', render: (v: number) => v > 0 ? `${v.toFixed(1)}h` : '-' },
+    { title: '总成本', dataIndex: 'total_cost', key: 'total_cost', render: (v: number) => `¥${v.toLocaleString()}` },
+  ]
+
+  const mapAttendanceLabel = (name: string) => name === '上班' ? '工作日上班' : name
 
   // Level 1: 一级部门卡片视图
   const renderLevel1 = () => (
@@ -253,11 +336,18 @@ const Departments = () => {
         sorter: (a: DepartmentListItem, b: DepartmentListItem) => a.total_cost - b.total_cost,
       },
       {
-        title: '平均工时 (小时)',
+        title: '工作日平均工时 (小时)',
         dataIndex: 'avg_work_hours',
         key: 'avg_work_hours',
         render: (value: number) => `${value.toFixed(1)} h`,
         sorter: (a: DepartmentListItem, b: DepartmentListItem) => a.avg_work_hours - b.avg_work_hours,
+      },
+      {
+        title: '节假日平均工时 (小时)',
+        dataIndex: 'holiday_avg_work_hours',
+        key: 'holiday_avg_work_hours',
+        render: (value: number) => value > 0 ? `${value.toFixed(1)} h` : '-',
+        sorter: (a: DepartmentListItem, b: DepartmentListItem) => a.holiday_avg_work_hours - b.holiday_avg_work_hours,
       },
       {
         title: '操作',
@@ -285,10 +375,16 @@ const Departments = () => {
           columns={columns}
           rowKey="name"
           loading={loading}
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 个部门`,
+          }}
         />
         {/* Level 2: 显示一级部门统计数据 */}
         {currentLevel === 2 && renderLevel1Statistics()}
+        {/* Level 3: 显示二级部门统计数据 */}
+        {currentLevel === 3 && renderLevel2Statistics()}
       </>
     )
   }
@@ -299,18 +395,23 @@ const Departments = () => {
 
     const { total_travel_cost, attendance_days_distribution, travel_ranking, avg_hours_ranking, level2_department_stats } = level1Statistics
 
+    // 排行榜数据：确保按数值从高到低（顶部为最大值）
+    const travelRankingDesc = [...travel_ranking].sort((a: any, b: any) => b.value - a.value)
+    const avgHoursRankingDesc = [...avg_hours_ranking].sort((a: any, b: any) => b.value - a.value)
+
     // 考勤天数分布饼图
     const attendancePieOption: EChartsOption = {
       title: { text: '考勤天数分布', left: 'center' },
-      tooltip: { trigger: 'item' },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}人天 ({d}%)' },
       legend: { orient: 'vertical', left: 'left' },
       series: [
         {
-          name: '天数',
+          name: '人天',
           type: 'pie',
           radius: '50%',
+          label: { show: true, formatter: '{b}: {d}%' },
           data: Object.entries(attendance_days_distribution).map(([name, value]) => ({
-            name,
+            name: mapAttendanceLabel(name),
             value: value as number,
           })),
           emphasis: {
@@ -332,12 +433,13 @@ const Departments = () => {
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: [...travel_ranking].reverse().map((r: any) => r.name),
+        data: travelRankingDesc.map((r: any) => r.name),
+        inverse: true,
       },
       series: [
         {
           type: 'bar',
-          data: [...travel_ranking].reverse().map((r: any) => ({
+          data: travelRankingDesc.map((r: any) => ({
             value: r.value,
             itemStyle: { color: '#5470c6' },
           })),
@@ -348,18 +450,23 @@ const Departments = () => {
 
     // 平均工时排行榜
     const avgHoursRankingOption: EChartsOption = {
-      title: { text: '平均工时排行榜', left: 'center' },
+      title: {
+        text: '平均工时排行榜',
+        subtext: '仅统计工作日出勤的平均工时',
+        left: 'center',
+      },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
       xAxis: { type: 'value', name: '小时' },
       yAxis: {
         type: 'category',
-        data: [...avg_hours_ranking].reverse().map((r: any) => r.name),
+        data: avgHoursRankingDesc.map((r: any) => r.name),
+        inverse: true,
       },
       series: [
         {
           type: 'bar',
-          data: [...avg_hours_ranking].reverse().map((r: any) => ({
+          data: avgHoursRankingDesc.map((r: any) => ({
             value: r.value,
             itemStyle: { color: '#73c0de' },
           })),
@@ -367,21 +474,6 @@ const Departments = () => {
         },
       ],
     }
-
-    // 二级部门统计表格列
-    const level2StatsColumns = [
-      { title: '部门名称', dataIndex: 'name', key: 'name' },
-      { title: '人数', dataIndex: 'person_count', key: 'person_count', render: (v: number) => `${v}人` },
-      { title: '工作日出勤天数', dataIndex: 'workday_attendance_days', key: 'workday_attendance_days', render: (v: number) => `${v}天` },
-      { title: '公休日上班天数', dataIndex: 'weekend_work_days', key: 'weekend_work_days', render: (v: number) => `${v}天` },
-      { title: '周末出勤次数', dataIndex: 'weekend_attendance_count', key: 'weekend_attendance_count' },
-      { title: '出差天数', dataIndex: 'travel_days', key: 'travel_days', render: (v: number) => `${v}天` },
-      { title: '请假天数', dataIndex: 'leave_days', key: 'leave_days', render: (v: number) => `${v}天` },
-      { title: '异常天数', dataIndex: 'anomaly_days', key: 'anomaly_days', render: (v: number) => `${v}天` },
-      { title: '晚上7:30后下班人数', dataIndex: 'late_after_1930_count', key: 'late_after_1930_count', render: (v: number) => `${v}人` },
-      { title: '平均工时', dataIndex: 'avg_work_hours', key: 'avg_work_hours', render: (v: number) => `${v.toFixed(1)}h` },
-      { title: '总成本', dataIndex: 'total_cost', key: 'total_cost', render: (v: number) => `¥${v.toLocaleString()}` },
-    ]
 
     return (
       <Spin spinning={statsLoading}>
@@ -420,7 +512,7 @@ const Departments = () => {
         {/* 平均工时排行榜 */}
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={24}>
-            <Card title="平均工时排行榜 (Top 10)">
+            <Card title="平均工时排行榜 (Top 10) —— 工作日">
               <ReactECharts option={avgHoursRankingOption} style={{ height: 300 }} />
             </Card>
           </Col>
@@ -430,9 +522,13 @@ const Departments = () => {
         <Card title="二级部门统计详情">
           <Table
             dataSource={level2_department_stats}
-            columns={level2StatsColumns}
+            columns={departmentStatsColumns}
             rowKey="name"
-            pagination={{ pageSize: 20 }}
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: false,
+              showTotal: (total) => `共 ${total} 个二级部门`,
+            }}
             size="small"
           />
         </Card>
@@ -440,24 +536,26 @@ const Departments = () => {
     )
   }
 
-  // 部门详情抽屉
-  const renderDetailDrawer = () => {
-    if (!selectedDepartment) return null
+  const renderLevel2Statistics = () => {
+    if (!level2Statistics) return null
 
-    const { attendance_days_distribution } = selectedDepartment
+    const { total_travel_cost, attendance_days_distribution, travel_ranking, avg_hours_ranking, level3_department_stats, parent_department } = level2Statistics
 
-    // 考勤天数分布饼图
+    const travelRankingDesc = [...travel_ranking].sort((a: any, b: any) => b.value - a.value)
+    const avgHoursRankingDesc = [...avg_hours_ranking].sort((a: any, b: any) => b.value - a.value)
+
     const attendancePieOption: EChartsOption = {
       title: { text: '考勤天数分布', left: 'center' },
-      tooltip: { trigger: 'item' },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}人天 ({d}%)' },
       legend: { orient: 'vertical', left: 'left' },
       series: [
         {
-          name: '天数',
+          name: '人天',
           type: 'pie',
           radius: '50%',
+          label: { show: true, formatter: '{b}: {d}%' },
           data: Object.entries(attendance_days_distribution).map(([name, value]) => ({
-            name,
+            name: mapAttendanceLabel(name),
             value: value as number,
           })),
           emphasis: {
@@ -471,7 +569,6 @@ const Departments = () => {
       ],
     }
 
-    // 出差排行榜
     const travelRankingOption: EChartsOption = {
       title: { text: '出差排行榜', left: 'center' },
       tooltip: { trigger: 'axis' },
@@ -479,12 +576,13 @@ const Departments = () => {
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: [...selectedDepartment.travel_ranking].reverse().map((r) => r.name),
+        data: travelRankingDesc.map((r: any) => r.name),
+        inverse: true,
       },
       series: [
         {
           type: 'bar',
-          data: [...selectedDepartment.travel_ranking].reverse().map((r) => ({
+          data: travelRankingDesc.map((r: any) => ({
             value: r.value,
             itemStyle: { color: '#5470c6' },
           })),
@@ -493,20 +591,167 @@ const Departments = () => {
       ],
     }
 
-    // 异常排行榜
-    const anomalyRankingOption: EChartsOption = {
-      title: { text: '异常排行榜', left: 'center' },
+    const avgHoursRankingOption: EChartsOption = {
+      title: {
+        text: '平均工时排行榜',
+        subtext: '仅统计工作日出勤的平均工时',
+        left: 'center',
+      },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+      xAxis: { type: 'value', name: '小时' },
+      yAxis: {
+        type: 'category',
+        data: avgHoursRankingDesc.map((r: any) => r.name),
+        inverse: true,
+      },
+      series: [
+        {
+          type: 'bar',
+          data: avgHoursRankingDesc.map((r: any) => ({
+            value: r.value,
+            itemStyle: { color: '#73c0de' },
+          })),
+          label: { show: true, position: 'right', formatter: '{c}h' },
+        },
+      ],
+    }
+
+    return (
+      <Spin spinning={statsLoading}>
+        <Divider orientation="left">
+          {selectedLevel2} - 汇总统计
+          {parent_department ? `（上级: ${parent_department}）` : ''}
+        </Divider>
+
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={24}>
+            <Card>
+              <Statistic
+                title="累计差旅成本"
+                value={total_travel_cost}
+                prefix={<DollarOutlined />}
+                precision={2}
+                suffix="元"
+                valueStyle={{ fontSize: 28, color: '#1890ff' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={12}>
+            <Card title="考勤天数分布">
+              <ReactECharts option={attendancePieOption} style={{ height: 300 }} />
+            </Card>
+          </Col>
+          <Col span={12}>
+            <Card title="出差排行榜 (Top 10)">
+              <ReactECharts option={travelRankingOption} style={{ height: 300 }} />
+            </Card>
+          </Col>
+        </Row>
+
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={24}>
+            <Card title="平均工时排行榜 (Top 10) —— 工作日">
+              <ReactECharts option={avgHoursRankingOption} style={{ height: 300 }} />
+            </Card>
+          </Col>
+        </Row>
+
+        <Card title="三级部门统计详情">
+          <Table
+            dataSource={level3_department_stats}
+            columns={departmentStatsColumns}
+            rowKey="name"
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: false,
+              showTotal: (total) => `共 ${total} 个三级部门`,
+            }}
+            size="small"
+          />
+        </Card>
+      </Spin>
+    )
+  }
+
+  // 部门详情抽屉
+  const renderDetailDrawer = () => {
+    if (!selectedDepartment) return null
+
+    const { attendance_days_distribution } = selectedDepartment
+    const mapAttendanceLabel = (name: string) => name === '上班' ? '工作日上班' : name
+
+    // 考勤天数分布饼图
+    const attendancePieOption: EChartsOption = {
+      title: { text: '考勤天数分布', left: 'center' },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}人天 ({d}%)' },
+      legend: { orient: 'vertical', left: 'left' },
+      series: [
+        {
+          name: '人天',
+          type: 'pie',
+          radius: '50%',
+          label: { show: true, formatter: '{b}: {d}%' },
+          data: Object.entries(attendance_days_distribution).map(([name, value]) => ({
+            name: mapAttendanceLabel(name),
+            value,
+          })),
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: 'rgba(0, 0, 0, 0.5)',
+            },
+          },
+        },
+      ],
+    }
+
+    // 排行榜数据：确保按数值从高到低展示（顶部为最高值）
+    const travelRankingDesc = [...selectedDepartment.travel_ranking].sort((a, b) => b.value - a.value)
+    const longestHoursDesc = [...selectedDepartment.longest_hours_ranking].sort((a, b) => b.value - a.value)
+
+    // 出差排行榜
+    const travelRankingOption: EChartsOption = {
+      title: { text: '出差排行榜', left: 'center' },
       tooltip: { trigger: 'axis' },
       grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: selectedDepartment.anomaly_ranking.map((r) => r.name),
+        data: travelRankingDesc.map((r) => r.name),
+        inverse: true,
       },
       series: [
         {
           type: 'bar',
-          data: selectedDepartment.anomaly_ranking.map((r) => ({
+          data: travelRankingDesc.map((r) => ({
+            value: r.value,
+            itemStyle: { color: '#5470c6' },
+          })),
+          label: { show: true, position: 'right' },
+        },
+      ],
+    }
+
+    // 未知天数排行榜（疑似异常）
+    const anomalyRankingOption: EChartsOption = {
+      title: { text: '未知天数排行榜（疑似异常）', left: 'center' },
+      tooltip: { trigger: 'axis' },
+      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+      xAxis: { type: 'value' },
+      yAxis: {
+        type: 'category',
+        data: [...selectedDepartment.anomaly_ranking].sort((a, b) => b.value - a.value).map((r) => r.name),
+        inverse: true,
+      },
+      series: [
+        {
+          type: 'bar',
+          data: [...selectedDepartment.anomaly_ranking].sort((a, b) => b.value - a.value).map((r) => ({
             value: r.value,
             itemStyle: { color: '#ee6666' },
           })),
@@ -515,20 +760,25 @@ const Departments = () => {
       ],
     }
 
-    // 最长工时排行榜（按平均工时）
+    // 最长工时排行榜
     const longestHoursOption: EChartsOption = {
-      title: { text: '平均工时排行榜', left: 'center' },
+      title: {
+        text: '最长工时排行榜',
+        subtext: '基于工作日平均工时',
+        left: 'center',
+      },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
       xAxis: { type: 'value', name: '小时' },
       yAxis: {
         type: 'category',
-        data: [...selectedDepartment.longest_hours_ranking].reverse().map((r) => r.name),
+        data: longestHoursDesc.map((r) => r.name),
+        inverse: true,
       },
       series: [
         {
           type: 'bar',
-          data: [...selectedDepartment.longest_hours_ranking].reverse().map((r) => ({
+          data: longestHoursDesc.map((r) => ({
             value: r.value,
             itemStyle: { color: '#73c0de' },
           })),
@@ -552,20 +802,21 @@ const Departments = () => {
             <Descriptions.Item label="部门层级">{selectedDepartment.department_level}</Descriptions.Item>
             <Descriptions.Item label="父部门">{selectedDepartment.parent_department || '-'}</Descriptions.Item>
             <Descriptions.Item label="工作日平均工时">{selectedDepartment.avg_work_hours} 小时</Descriptions.Item>
+            <Descriptions.Item label="节假日平均工时">{selectedDepartment.holiday_avg_work_hours > 0 ? `${selectedDepartment.holiday_avg_work_hours} 小时` : '-'}</Descriptions.Item>
           </Descriptions>
 
           <Divider />
 
           <Descriptions title="考勤统计" bordered column={3}>
-            <Descriptions.Item label="工作日出勤天数">{selectedDepartment.workday_attendance_days} 天</Descriptions.Item>
-            <Descriptions.Item label="公休日上班天数">{selectedDepartment.weekend_work_days} 天</Descriptions.Item>
+            <Descriptions.Item label="工作日出勤天数">{attendance_days_distribution['上班'] || 0} 人天</Descriptions.Item>
+            <Descriptions.Item label="公休日上班天数">{attendance_days_distribution['公休日上班'] || 0} 人天</Descriptions.Item>
             <Descriptions.Item label="周末出勤次数">{selectedDepartment.weekend_attendance_count} 次</Descriptions.Item>
           </Descriptions>
 
           <Descriptions bordered column={3}>
-            <Descriptions.Item label="出差天数">{selectedDepartment.travel_days} 天</Descriptions.Item>
-            <Descriptions.Item label="请假天数">{selectedDepartment.leave_days} 天</Descriptions.Item>
-            <Descriptions.Item label="异常天数">{selectedDepartment.anomaly_days} 天</Descriptions.Item>
+            <Descriptions.Item label="出差天数">{attendance_days_distribution['出差'] || 0} 人天</Descriptions.Item>
+            <Descriptions.Item label="请假天数">{attendance_days_distribution['请假'] || 0} 人天</Descriptions.Item>
+            <Descriptions.Item label="未知天数（疑似异常）">{selectedDepartment.anomaly_days} 人天</Descriptions.Item>
           </Descriptions>
 
           <Descriptions bordered column={2}>
@@ -589,12 +840,12 @@ const Departments = () => {
 
           <Row gutter={16} style={{ marginTop: 16 }}>
             <Col span={12}>
-              <Card title="异常排行榜 (Top 10)">
+              <Card title="未知天数排行榜（疑似异常） (Top 10)">
                 <ReactECharts option={anomalyRankingOption} style={{ height: 300 }} />
               </Card>
             </Col>
             <Col span={12}>
-              <Card title="平均工时排行榜 (Top 10)">
+              <Card title="最长工时排行榜 (Top 10)">
                 <ReactECharts option={longestHoursOption} style={{ height: 300 }} />
               </Card>
             </Col>
@@ -628,13 +879,21 @@ const Departments = () => {
       <Breadcrumb items={breadcrumbItems} style={{ marginBottom: 16 }} />
 
       <div style={{ marginBottom: 16 }}>
-        <Space>
-          <ArrowLeftOutlined onClick={goBack} style={{ cursor: 'pointer', fontSize: 20 }} />
-          <Title level={3} style={{ margin: 0 }}>
-            {currentLevel === 1 && '一级部门'}
-            {currentLevel === 2 && `${selectedLevel1} - 二级部门`}
-            {currentLevel === 3 && `${selectedLevel2} - 三级部门`}
-          </Title>
+        <Space direction="vertical" size={4}>
+          <Space>
+            <ArrowLeftOutlined onClick={goBack} style={{ cursor: 'pointer', fontSize: 20 }} />
+            <Title level={3} style={{ margin: 0 }}>
+              {currentLevel === 1 && '一级部门'}
+              {currentLevel === 2 && `${selectedLevel1} - 二级部门`}
+              {currentLevel === 3 && `${selectedLevel2} - 三级部门`}
+            </Title>
+          </Space>
+          <Space align="center" size={[4, 4]} wrap>
+            <Typography.Text type="secondary">统计月份:</Typography.Text>
+            {selectedMonths.map(month => (
+              <Tag key={month} color="blue">{formatMonthDisplay(month)}</Tag>
+            ))}
+          </Space>
         </Space>
       </div>
 

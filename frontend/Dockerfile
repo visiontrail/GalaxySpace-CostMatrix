@@ -14,6 +14,9 @@ RUN npm config set registry https://registry.npmmirror.com && \
 # 复制源代码
 COPY . .
 
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=${VITE_API_URL}
+
 # 构建生产版本
 RUN npm run build
 
@@ -31,4 +34,3 @@ EXPOSE 80
 
 # Nginx 默认会在前台运行
 CMD ["nginx", "-g", "daemon off;"]
-

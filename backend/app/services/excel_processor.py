@@ -48,6 +48,16 @@ class ExcelProcessor:
             sheet_names = ", ".join(all_sheets.keys())
             self.logger.info(f"Excel 读取完成（{sheet_names}），耗时 {elapsed:.2f}s")
             
+            # 输出每个 Sheet 的基本信息
+            for sheet_name, df in all_sheets.items():
+                self.logger.info(f"Sheet [{sheet_name}]: {len(df)} 行, {len(df.columns)} 列")
+                self.logger.info(f"  列名: {list(df.columns)}")
+                if len(df) > 0:
+                    self.logger.info(f"  前2行数据预览:")
+                    for idx in range(min(2, len(df))):
+                        row_data = df.iloc[idx].to_dict()
+                        self.logger.info(f"    行{idx}: {row_data}")
+            
             # 部分分析场景不需要 Workbook，仅在回写等场景按需加载
             if load_workbook_obj:
                 wb_start = time.perf_counter()
@@ -106,6 +116,14 @@ class ExcelProcessor:
         # 删除空行
         df = df.dropna(subset=['姓名'], how='all')
 
+        # 规范化考勤状态，缺失/空值统一为“未知”
+        if '当日状态判断' in df.columns:
+            status_series = df['当日状态判断']
+            status_clean = status_series.astype(str).str.strip()
+            unknown_mask = status_series.isna() | status_clean.eq('') | status_clean.eq('nan')
+            df.loc[unknown_mask, '当日状态判断'] = '未知'
+            df['当日状态判断'] = df['当日状态判断'].astype(str).str.strip()
+
         if use_cache:
             self._attendance_cache = df
         
@@ -120,28 +138,122 @@ class ExcelProcessor:
 
         df = self.get_sheet(sheet_name)
         if df is None:
+            self.logger.warning(f"[{sheet_name}] Sheet 不存在")
             return pd.DataFrame()
-        
+
+        self.logger.info(f"[{sheet_name}] 开始清洗数据 - 原始列名: {list(df.columns)}")
+        self.logger.info(f"[{sheet_name}] 原始行数: {len(df)}")
+
         df = df.copy()
+        # 标准化列名：去除首尾空格，避免不同月份 Excel 列名细微差异导致匹配失败
+        df.columns = [str(c).strip() for c in df.columns]
+        original_df = df.copy()
         
         # 处理金额字段
         amount_col = '授信金额' if '授信金额' in df.columns else '金额'
+        self.logger.info(f"[{sheet_name}] 金额列: {amount_col}")
         if amount_col in df.columns:
             df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
             # 将 NaN 填充为 0，但保留所有记录
             df[amount_col] = df[amount_col].fillna(0)
+            self.logger.info(f"[{sheet_name}] 金额列有效值数: {df[amount_col].notna().sum()}")
+        else:
+            self.logger.warning(f"[{sheet_name}] 未找到金额列（授信金额或金额）")
         
-        # 处理日期字段
-        date_cols = ['出发日期', '入住日期', '订单日期']
-        for col in date_cols:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+        def _parse_datetime_avoiding_time_only(series: pd.Series) -> pd.Series:
+            """
+            将列解析为 datetime，并避免把纯时间值（如 '22:17' 或 datetime.time）解析为“今天”的日期。
+            """
+            if series is None:
+                return pd.Series(dtype="datetime64[ns]")
+
+            # 已经是 datetime 类型
+            try:
+                if pd.api.types.is_datetime64_any_dtype(series):
+                    return pd.to_datetime(series, errors="coerce")
+            except Exception:
+                pass
+
+            # 处理 datetime.time 或纯时间字符串
+            time_only_regex = re.compile(r"^\\s*\\d{1,2}:\\d{2}(:\\d{2})?\\s*$")
+
+            def _is_time_obj(v: Any) -> bool:
+                try:
+                    from datetime import time as dt_time
+                    return isinstance(v, dt_time)
+                except Exception:
+                    return False
+
+            if series.dtype == object:
+                cleaned = series.copy()
+                mask_time_obj = cleaned.map(_is_time_obj)
+                cleaned.loc[mask_time_obj] = None
+
+                str_series = cleaned.astype(str)
+                mask_time_str = str_series.str.match(time_only_regex, na=False)
+                cleaned.loc[mask_time_str] = None
+
+                return pd.to_datetime(cleaned, errors="coerce")
+
+            return pd.to_datetime(series, errors="coerce")
+
+        found_date_cols: List[str] = []
+        if sheet_name == '机票':
+            if '起飞时间' in original_df.columns:
+                df['起飞日期'] = _parse_datetime_avoiding_time_only(original_df['起飞时间'])
+                found_date_cols.append('起飞时间→起飞日期')
+            if '起飞时间.1' in original_df.columns:
+                df['起飞日期.1'] = _parse_datetime_avoiding_time_only(original_df['起飞时间.1'])
+                found_date_cols.append('起飞时间.1→起飞日期.1')
+        elif sheet_name == '酒店':
+            # 以“入住日期”为主；若存在“入住时间”（含日期时间），补充到“入住日期.1”
+            if '入住日期' in original_df.columns:
+                df['入住日期'] = _parse_datetime_avoiding_time_only(original_df['入住日期'])
+                found_date_cols.append('入住日期')
+            if '入住时间' in original_df.columns:
+                dt_full = _parse_datetime_avoiding_time_only(original_df['入住时间'])
+                if dt_full.notna().any():
+                    df['入住日期.1'] = dt_full
+                    found_date_cols.append('入住时间→入住日期.1')
+        elif sheet_name == '火车票':
+            # “出发日期”是关键日期字段。旧逻辑会把“出发时间”(HH:MM)写入“出发日期”，导致日期被解析成“今天”。
+            if '出发日期' in original_df.columns:
+                df['出发日期'] = _parse_datetime_avoiding_time_only(original_df['出发日期'])
+                found_date_cols.append('出发日期')
+            elif '出发时间' in original_df.columns:
+                # 兜底：某些模板可能只提供“出发时间”(包含日期时间)
+                df['出发日期'] = _parse_datetime_avoiding_time_only(original_df['出发时间'])
+                found_date_cols.append('出发时间→出发日期')
+
+            # 如果“出发时间”存在且是完整日期时间，写入“出发日期.1”；若仅是时间字符串，则与“出发日期”组合
+            if '出发时间' in original_df.columns:
+                dt_full = _parse_datetime_avoiding_time_only(original_df['出发时间'])
+                if dt_full.notna().any():
+                    df['出发日期.1'] = dt_full
+                    found_date_cols.append('出发时间→出发日期.1')
+                elif '出发日期' in df.columns and df['出发日期'].notna().any():
+                    time_str = original_df['出发时间'].astype(str).str.strip()
+                    time_only_mask = time_str.str.match(r"^\\d{1,2}:\\d{2}(:\\d{2})?$", na=False)
+                    if time_only_mask.any():
+                        date_str = df['出发日期'].dt.strftime('%Y-%m-%d')
+                        combined = pd.to_datetime(date_str + ' ' + time_str, errors='coerce')
+                        df.loc[time_only_mask, '出发日期.1'] = combined.loc[time_only_mask]
+                        found_date_cols.append('出发日期+出发时间→出发日期.1')
+
+        self.logger.info(f"[{sheet_name}] 找到的日期列: {found_date_cols}")
         
         # 统一差旅人员姓名字段
+        name_cols = [col for col in ['差旅人员姓名', '预订人姓名'] if col in df.columns]
+        self.logger.info(f"[{sheet_name}] 找到的姓名列: {name_cols}")
         if '差旅人员姓名' in df.columns:
             df['姓名'] = df['差旅人员姓名']
         elif '预订人姓名' in df.columns:
             df['姓名'] = df['预订人姓名']
+        else:
+            self.logger.warning(f"[{sheet_name}] 未找到姓名列（差旅人员姓名或预订人姓名）")
+
+        self.logger.info(f"[{sheet_name}] 清洗后行数: {len(df)}")
+        self.logger.info(f"[{sheet_name}] 最终列名: {list(df.columns)}")
 
         if use_cache:
             self._travel_cache[sheet_name] = df
@@ -157,17 +269,25 @@ class ExcelProcessor:
 
         frames: List[pd.DataFrame] = []
         date_columns = {
-            '机票': '出发日期',
-            '酒店': '入住日期',
-            '火车票': '出发日期'
+            '机票': ['起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1'],
+            '酒店': ['入住日期', '入住时间'],
+            '火车票': ['出发日期', '出发时间']
         }
 
-        for sheet_name, date_col in date_columns.items():
+        for sheet_name, date_cols in date_columns.items():
             df = self.clean_travel_data(sheet_name)
-            if df.empty or date_col not in df.columns:
+            if df.empty:
+                continue
+            
+            date_col = None
+            for col in date_cols:
+                if col in df.columns:
+                    date_col = col
+                    break
+            
+            if not date_col:
                 continue
 
-            # 仅保留需要的字段，避免复制无关数据
             temp = df[['姓名', date_col]].copy()
             temp = temp[temp[date_col].notna()]
             if temp.empty:
@@ -182,6 +302,19 @@ class ExcelProcessor:
         )
         self._combined_travel_cache = combined
         return combined
+
+    def _unknown_status_mask(self, df: pd.DataFrame) -> pd.Series:
+        """
+        标记考勤状态为未知/缺失的记录，用于疑似异常统计
+        """
+        if df is None:
+            return pd.Series(dtype=bool)
+        if df.empty or '当日状态判断' not in df.columns:
+            return pd.Series(False, index=df.index, dtype=bool)
+
+        status_series = df['当日状态判断']
+        status_clean = status_series.astype(str).str.strip()
+        return status_series.isna() | status_clean.eq('') | status_clean.eq('未知')
     
     def extract_project_code(self, project_str: str) -> Tuple[str, str]:
         """
@@ -235,6 +368,9 @@ class ExcelProcessor:
                 continue
             
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
+            date_cols = ['出发日期', '出发日期.1', '出发时间', '起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1', '入住日期', '入住时间']
+            date_col = next((col for col in date_cols if col in df.columns), None)
+            
             self.logger.info(f"   - 原始记录数: {original_count}")
             self.logger.info(f"   - 清洗后记录数: {len(df)}")
             self.logger.info(f"   - 金额列: {amount_col}")
@@ -261,7 +397,7 @@ class ExcelProcessor:
                     'amount': amount,
                     'type': sheet_name,
                     'person': row.get('姓名', ''),
-                    'date': row.get('出发日期', '')
+                    'date': row.get(date_col, '') if date_col else ''
                 })
                 record_count += 1
                 sheet_total_amount += amount
@@ -269,7 +405,7 @@ class ExcelProcessor:
                 # 输出前3条记录的详细信息
                 if record_count <= 3:
                     person = row.get('姓名', '未知')
-                    date_val = row.get('出发日期', '')
+                    date_val = row.get(date_col, '') if date_col else ''
                     # 安全的日期格式化
                     if pd.notna(date_val) and hasattr(date_val, 'strftime'):
                         date_str = date_val.strftime('%Y-%m-%d')
@@ -391,6 +527,9 @@ class ExcelProcessor:
                         'project_code': row['project_code'],
                         'project_name': row['project_name'],
                         'total_cost': float(row['amount']),
+                        'flight_cost': float(flight_cost),
+                        'hotel_cost': float(hotel_cost),
+                        'train_cost': float(train_cost),
                         'record_count': int(row['person']),
                         'details': project_details[:10]
                     })
@@ -399,6 +538,9 @@ class ExcelProcessor:
                 others_df = grouped.iloc[top_n:]
                 others_total_cost = float(others_df['amount'].sum())
                 others_record_count = int(others_df['person'].sum())
+                others_flight_cost = float(df_projects[df_projects['project_code'].isin(others_df['project_code']) & (df_projects['type'] == '机票')]['amount'].sum())
+                others_hotel_cost = float(df_projects[df_projects['project_code'].isin(others_df['project_code']) & (df_projects['type'] == '酒店')]['amount'].sum())
+                others_train_cost = float(df_projects[df_projects['project_code'].isin(others_df['project_code']) & (df_projects['type'] == '火车票')]['amount'].sum())
                 
                 self.logger.info(f"\n   #{top_n+1}. 其他")
                 self.logger.info(f"      汇总项目数: {total_count - top_n}")
@@ -408,6 +550,9 @@ class ExcelProcessor:
                     'project_code': '其他',
                     'project_name': f'其他项目（{total_count - top_n}个）',
                     'total_cost': others_total_cost,
+                    'flight_cost': others_flight_cost,
+                    'hotel_cost': others_hotel_cost,
+                    'train_cost': others_train_cost,
                     'record_count': others_record_count,
                     'details': []
                 })
@@ -436,6 +581,9 @@ class ExcelProcessor:
                         'project_code': row['project_code'],
                         'project_name': row['project_name'],
                         'total_cost': float(row['amount']),
+                        'flight_cost': float(flight_cost),
+                        'hotel_cost': float(hotel_cost),
+                        'train_cost': float(train_cost),
                         'record_count': int(row['person']),
                         'details': project_details[:10]
                     })
@@ -457,9 +605,14 @@ class ExcelProcessor:
     def cross_check_attendance_travel(self) -> List[Dict[str, Any]]:
         """
         交叉验证：考勤数据 vs 差旅数据
+
+        异常定义：考勤状态精确为"上班"（在办公室工作），但同一天有差旅消费（出差在外）
+        - "上班" + 有差旅消费 = 异常（时间和地点冲突）
+        - "公休日上班" + 有差旅消费 = 正常（周末加班出差）
+        - "出差" + 有差旅消费 = 正常（出差状态）
         """
         anomalies = []
-        
+
         # 获取考勤数据
         attendance_df = self.clean_attendance_data()
         if attendance_df.empty or '当日状态判断' not in attendance_df.columns:
@@ -479,9 +632,10 @@ class ExcelProcessor:
         else:
             attendance_df['一级部门'] = '未知部门'
 
-        # 只关注考勤显示上班的记录，缩小计算范围
+        # 只关注考勤状态精确为"上班"的记录（排除"公休日上班"、"出差"等）
+        # 真正的异常是：在办公室上班，但同一天有差旅消费
         work_attendance = attendance_df[
-            attendance_df['当日状态判断'].str.contains('上班', na=False)
+            attendance_df['当日状态判断'] == '上班'
         ]
         if work_attendance.empty:
             return anomalies
@@ -498,7 +652,7 @@ class ExcelProcessor:
             .rename(columns={'消费日期': '日期'})
         )
 
-        # 基于姓名+日期一次性关联，避免双重 for 循环
+        # 基于姓名+日期一次性关联，找出上班但有差旅消费的记录
         merged = work_attendance.merge(
             travel_grouped,
             on=['姓名', '日期'],
@@ -517,10 +671,10 @@ class ExcelProcessor:
                 'anomaly_type': 'A',
                 'attendance_status': row.get('当日状态判断', ''),
                 'travel_records': travel_list,
-                'description': f'{name} 在 {date_str} 考勤显示上班，但有 {",".join(travel_list)} 消费记录'
+                'description': f'{name} 在 {date_str} 考勤显示上班（在办公室），但有 {",".join(travel_list)} 消费记录（出差在外），存在时间和地点冲突'
             })
 
-        self.logger.info(f"交叉验证完成，发现 {len(anomalies)} 条异常记录")
+        self.logger.info(f"交叉验证完成，发现 {len(anomalies)} 条异常记录（上班状态有差旅消费）")
         return anomalies
     
     def analyze_booking_behavior(self) -> Dict[str, Any]:
@@ -685,44 +839,47 @@ class ExcelProcessor:
                     continue
                 dept_data = attendance_df[attendance_df['一级部门'] == dept]
                 avg_hours = 0
-                if '工时' in dept_data.columns:
-                    avg_hours = dept_data['工时'].mean()
+                holiday_avg_hours = 0
+                if '工时' in dept_data.columns and '当日状态判断' in dept_data.columns:
+                    # 工作日平均工时计算
+                    workday_data = dept_data[dept_data['当日状态判断'] == '上班']
+                    self.logger.info(f"  [{dept}] 工作日('上班')记录数: {len(workday_data)}")
+                    valid_hours = workday_data[workday_data['工时'] != 0]['工时'].dropna()
+                    self.logger.info(f"  [{dept}] 工作日有效工时记录(工时!=0且非NaN): {len(valid_hours)}")
+                    if not valid_hours.empty:
+                        avg_hours = float(valid_hours.mean())
+                        self.logger.info(f"  [{dept}] 工作日平均工时: {avg_hours:.2f}小时")
                     if pd.isna(avg_hours):
                         avg_hours = 0
+                        self.logger.info(f"  [{dept}] 工作日平均工时为NaN，设为0")
+
+                    # 节假日平均工时计算（公休日上班）
+                    holiday_data = dept_data[dept_data['当日状态判断'] == '公休日上班']
+                    self.logger.info(f"  [{dept}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+                    if len(holiday_data) > 0:
+                        self.logger.info(f"  [{dept}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                        self.logger.info(f"  [{dept}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                        self.logger.info(f"  [{dept}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+                    holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                    self.logger.info(f"  [{dept}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+                    if not holiday_valid_hours.empty:
+                        holiday_avg_hours = float(holiday_valid_hours.mean())
+                        self.logger.info(f"  [{dept}] 节假日平均工时: {holiday_avg_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                        self.logger.info(f"  [{dept}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+                    else:
+                        holiday_avg_hours = 0
+                        self.logger.warning(f"  [{dept}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
+                    if pd.isna(holiday_avg_hours):
+                        holiday_avg_hours = 0
+                        self.logger.warning(f"  [{dept}] ⚠️  节假日平均工时为NaN，设为0")
                 person_count = dept_data['姓名'].nunique() if '姓名' in dept_data.columns else 0
                 dept_attendance_stats[dept] = {
                     'avg_hours': float(avg_hours),
+                    'holiday_avg_hours': float(holiday_avg_hours),
                     'person_count': int(person_count)
                 }
         
-        # 尝试从差旅汇总 Sheet 获取
-        summary_df = self.get_sheet('差旅汇总')
-        if summary_df is not None and not summary_df.empty:
-            if '一级部门' in summary_df.columns and '成本' in summary_df.columns:
-                grouped = summary_df.groupby('一级部门').agg({
-                    '成本': 'sum'
-                }).reset_index()
-                
-                # 按成本降序排序
-                grouped = grouped.sort_values('成本', ascending=False).reset_index(drop=True)
-                
-                for _, row in grouped.iterrows():
-                    dept = row['一级部门']
-                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
-                    results.append({
-                        'department': dept,
-                        'total_cost': float(row['成本']),
-                        'flight_cost': 0,
-                        'hotel_cost': 0,
-                        'train_cost': 0,
-                        'avg_hours': stats['avg_hours'],
-                        'person_count': stats['person_count']
-                    })
-                
-                # 应用 top_n 限制并添加"其他"
-                return self._apply_top_n_with_others(results, top_n, 'department')
-        
-        # 如果没有汇总表，从明细计算
+        # 始终从明细表计算部门成本（不使用"差旅汇总" sheet）
         travel_data = {
             '机票': 'flight_cost',
             '酒店': 'hotel_cost',
@@ -736,24 +893,31 @@ class ExcelProcessor:
             if df.empty:
                 continue
             
-            # 尝试关联部门信息
-            if not attendance_df.empty and '一级部门' in attendance_df.columns:
-                # Merge with attendance to get department
+            # 尝试关联部门信息（优先使用差旅表中的部门，如果没有则从考勤表获取）
+            df = df.copy()
+            if '一级部门' in df.columns:
+                # 差旅表已有部门信息，优先使用
+                pass
+            elif not attendance_df.empty and '姓名' in attendance_df.columns and '一级部门' in attendance_df.columns:
+                # 从考勤表获取部门信息
                 name_dept = attendance_df[['姓名', '一级部门']].drop_duplicates()
                 df = df.merge(name_dept, on='姓名', how='left')
-            
+
             if '一级部门' not in df.columns:
                 continue
-            
+
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
-            
+
             for _, row in df.iterrows():
-                dept = row.get('一级部门', '未知部门')
-                if pd.isna(dept):
+                dept = row.get('一级部门')
+                # 处理部门为空的情况
+                if pd.isna(dept) or (isinstance(dept, str) and dept.strip() == ''):
                     dept = '未知部门'
+                else:
+                    dept = str(dept).strip()
                 
                 if dept not in dept_costs:
-                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'person_count': 0})
+                    stats = dept_attendance_stats.get(dept, {'avg_hours': 0, 'holiday_avg_hours': 0, 'person_count': 0})
                     dept_costs[dept] = {
                         'department': dept,
                         'total_cost': 0,
@@ -761,6 +925,7 @@ class ExcelProcessor:
                         'hotel_cost': 0,
                         'train_cost': 0,
                         'avg_hours': stats['avg_hours'],
+                        'holiday_avg_hours': stats['holiday_avg_hours'],
                         'person_count': stats['person_count']
                     }
                 
@@ -827,23 +992,41 @@ class ExcelProcessor:
         df = self.clean_attendance_data()
         if df.empty:
             return {}
-        
+
         total_records = len(df)
         total_persons = df['姓名'].nunique() if '姓名' in df.columns else 0
-        
+
         status_distribution = {}
         if '当日状态判断' in df.columns:
             status_distribution = df['当日状态判断'].value_counts().to_dict()
-        
+
+        # 计算工作日平均工时
         avg_work_hours = 0
-        if '工时' in df.columns:
-            avg_work_hours = float(df['工时'].mean())
-        
+        if '工时' in df.columns and '当日状态判断' in df.columns:
+            workday_data = df[df['当日状态判断'] == '上班']
+            valid_hours = workday_data[workday_data['工时'] != 0]['工时'].dropna()
+            if not valid_hours.empty:
+                avg_work_hours = float(valid_hours.mean())
+                self.logger.info(f"全公司工作日平均工时: {avg_work_hours:.2f}小时 (基于{len(valid_hours)}条记录)")
+
+        # 计算节假日平均工时
+        holiday_avg_work_hours = 0
+        if '工时' in df.columns and '当日状态判断' in df.columns:
+            # 筛选节假日/公休日/公休日上班的记录
+            holiday_statuses = ['公休日', '公休日上班', '节假日']
+            holiday_df = df[df['当日状态判断'].isin(holiday_statuses)]
+            # 过滤掉工时为0的记录
+            holiday_valid_hours = holiday_df[holiday_df['工时'] != 0]['工时'].dropna()
+            if not holiday_valid_hours.empty:
+                holiday_avg_work_hours = float(holiday_valid_hours.mean())
+                self.logger.info(f"全公司节假日平均工时: {holiday_avg_work_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+
         return {
             'total_records': total_records,
             'total_persons': total_persons,
             'status_distribution': status_distribution,
-            'avg_work_hours': round(avg_work_hours, 2)
+            'avg_work_hours': round(avg_work_hours, 2),
+            'holiday_avg_work_hours': round(holiday_avg_work_hours, 2)
         }
     
     def write_analysis_results(self, results: Dict[str, Any], output_path: Optional[str] = None) -> str:
@@ -937,9 +1120,10 @@ class ExcelProcessor:
                 continue
 
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
-            date_col = '出发日期' if '出发日期' in df.columns else '入住日期'
+            date_cols = ['出发日期', '出发日期.1', '出发时间', '起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1', '入住日期', '入住时间']
+            date_col = next((col for col in date_cols if col in df.columns), None)
 
-            # 获取考勤数据用于部门信息
+            # 获取考勤数据用于部门信息（作为备用）
             attendance_df = self.clean_attendance_data()
             person_dept_map = {}
             if not attendance_df.empty and '姓名' in attendance_df.columns and '一级部门' in attendance_df.columns:
@@ -951,7 +1135,18 @@ class ExcelProcessor:
                 amount = row.get(amount_col, 0)
                 person = row.get('姓名', '')
                 date_val = row.get(date_col, '')
-                department = person_dept_map.get(person, '未知部门')
+
+                # 优先使用差旅表中的部门信息，如果没有则从考勤表中查找
+                department = None
+                if '一级部门' in df.columns:
+                    department = row.get('一级部门')
+                    # 处理空值或NaN
+                    if pd.isna(department) or (isinstance(department, str) and department.strip() == ''):
+                        department = None
+                if not department:
+                    department = person_dept_map.get(person, '未知部门')
+                else:
+                    department = str(department).strip()
 
                 # 处理日期
                 if pd.notna(date_val):
@@ -1103,7 +1298,8 @@ class ExcelProcessor:
                 continue
 
             amount_col = '授信金额' if '授信金额' in df.columns else '金额'
-            date_col = '出发日期' if '出发日期' in df.columns else '入住日期'
+            date_cols = ['出发日期', '出发日期.1', '出发时间', '起飞日期', '起飞日期.1', '起飞时间', '起飞时间.1', '入住日期', '入住时间']
+            date_col = next((col for col in date_cols if col in df.columns), None)
 
             for idx, row in df.iterrows():
                 project_str = row.get('项目', '')
@@ -1121,7 +1317,18 @@ class ExcelProcessor:
                 amount = row.get(amount_col, 0)
                 person = row.get('姓名', '')
                 date_val = row.get(date_col, '')
-                department = person_dept_map.get(person, '未知部门')
+
+                # 优先使用差旅表中的部门信息，如果没有则从考勤表中查找
+                department = None
+                if '一级部门' in df.columns:
+                    department = row.get('一级部门')
+                    # 处理空值或NaN
+                    if pd.isna(department) or (isinstance(department, str) and department.strip() == ''):
+                        department = None
+                if not department:
+                    department = person_dept_map.get(person, '未知部门')
+                else:
+                    department = str(department).strip()
 
                 # 处理日期
                 if pd.notna(date_val):
@@ -1268,12 +1475,29 @@ class ExcelProcessor:
             # 计算人数
             person_count = dept_data['姓名'].nunique() if '姓名' in dept_data.columns else 0
 
-            # 计算平均工时
             avg_hours = 0
-            if '工时' in dept_data.columns:
-                valid_hours = dept_data['工时'].dropna()
+            if '工时' in dept_data.columns and '当日状态判断' in dept_data.columns:
+                valid_hours = dept_data[(dept_data['当日状态判断'] == '上班') & (dept_data['工时'] != 0)]['工时'].dropna()
                 if not valid_hours.empty:
                     avg_hours = float(valid_hours.mean())
+
+            holiday_avg_hours = 0
+            if '工时' in dept_data.columns and '当日状态判断' in dept_data.columns:
+                # 节假日平均工时计算（公休日上班）
+                holiday_data = dept_data[dept_data['当日状态判断'] == '公休日上班']
+                self.logger.info(f"[部门列表-{dept}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+                if len(holiday_data) > 0:
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+                holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                self.logger.info(f"[部门列表-{dept}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+                if not holiday_valid_hours.empty:
+                    holiday_avg_hours = float(holiday_valid_hours.mean())
+                    self.logger.info(f"[部门列表-{dept}] 节假日平均工时: {holiday_avg_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                    self.logger.info(f"[部门列表-{dept}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+                else:
+                    self.logger.warning(f"[部门列表-{dept}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
 
             # 获取成本
             cost_info = dept_costs.get(dept, {'total_cost': 0, 'flight_cost': 0, 'hotel_cost': 0, 'train_cost': 0})
@@ -1284,7 +1508,8 @@ class ExcelProcessor:
                 'parent': parent,
                 'person_count': int(person_count),
                 'total_cost': float(cost_info['total_cost']),
-                'avg_work_hours': round(avg_hours, 2)
+                'avg_work_hours': round(avg_hours, 2),
+                'holiday_avg_work_hours': round(holiday_avg_hours, 2)
             })
 
         # 按成本降序排序
@@ -1412,12 +1637,34 @@ class ExcelProcessor:
         if '当日状态判断' in dept_df.columns:
             workday_attendance_days = int(dept_df[dept_df['当日状态判断'] == '上班'].shape[0])
 
-        # 4. 工作日平均工时
         avg_work_hours = 0
-        if '工时' in dept_df.columns:
-            valid_hours = dept_df[dept_df['当日状态判断'] == '上班']['工时'].dropna()
+        holiday_avg_work_hours = 0
+        if '工时' in dept_df.columns and '当日状态判断' in dept_df.columns:
+            # 工作日平均工时计算
+            workday_data = dept_df[dept_df['当日状态判断'] == '上班']
+            self.logger.info(f"[部门详情-{department_name}] 工作日('上班')记录数: {len(workday_data)}")
+            valid_hours = workday_data[workday_data['工时'] != 0]['工时'].dropna()
+            self.logger.info(f"[部门详情-{department_name}] 工作日有效工时记录(工时!=0且非NaN): {len(valid_hours)}")
             if not valid_hours.empty:
                 avg_work_hours = float(valid_hours.mean())
+                self.logger.info(f"[部门详情-{department_name}] 工作日平均工时: {avg_work_hours:.2f}小时")
+
+            # 节假日平均工时计算（公休日上班）
+            holiday_data = dept_df[dept_df['当日状态判断'] == '公休日上班']
+            self.logger.info(f"[部门详情-{department_name}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+            if len(holiday_data) > 0:
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+            holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+            self.logger.info(f"[部门详情-{department_name}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+            if not holiday_valid_hours.empty:
+                holiday_avg_work_hours = float(holiday_valid_hours.mean())
+                self.logger.info(f"[部门详情-{department_name}] 节假日平均工时: {holiday_avg_work_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                self.logger.info(f"[部门详情-{department_name}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+            else:
+                holiday_avg_work_hours = 0
+                self.logger.warning(f"[部门详情-{department_name}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
 
         # 5. 出差天数
         travel_days = 0
@@ -1429,22 +1676,17 @@ class ExcelProcessor:
         if '当日状态判断' in dept_df.columns:
             leave_days = int(dept_df[dept_df['当日状态判断'] == '请假'].shape[0])
 
-        # 7. 异常天数（通过交叉验证）
-        anomalies = self.cross_check_attendance_travel()
-        dept_anomalies = [a for a in anomalies if a.get('department') == department_name]
-        anomaly_days = len(dept_anomalies)
+        # 7. 未知天数（疑似异常）：来自考勤状态缺失/未知
+        unknown_mask = self._unknown_status_mask(dept_df)
+        anomaly_days = int(unknown_mask.sum())
 
         # 8. 晚上7:30后下班人数
         late_after_1930_count = 0
         if '最晚19:30之后' in dept_df.columns:
             late_after_1930_count = int(dept_df[dept_df['最晚19:30之后'] == '符合']['姓名'].nunique())
 
-        # 9. 周末出勤次数
-        weekend_attendance_count = 0
-        if '日期' in dept_df.columns and '当日状态判断' in dept_df.columns:
-            dept_df['weekday'] = dept_df['日期'].dt.dayofweek
-            weekend_df = dept_df[dept_df['weekday'].isin([5, 6])]  # 5=周六, 6=周日
-            weekend_attendance_count = int(weekend_df[weekend_df['当日状态判断'].isin(['上班', '出差'])].shape[0])
+        # 9. 周末出勤次数（与考勤分布保持一致，仅统计"公休日上班"）
+        weekend_attendance_count = int(attendance_days_distribution.get('公休日上班', weekend_work_days))
 
         # 10. 出差排行榜（按出差天数）
         travel_ranking = []
@@ -1459,12 +1701,16 @@ class ExcelProcessor:
 
         # 11. 异常排行榜（按异常次数）
         anomaly_ranking = []
-        if dept_anomalies:
-            from collections import Counter
-            anomaly_counts = Counter([a.get('name', '') for a in dept_anomalies])
+        if '姓名' in dept_df.columns and '当日状态判断' in dept_df.columns and unknown_mask.any():
+            unknown_counts = (
+                dept_df[unknown_mask]
+                .groupby('姓名')
+                .size()
+                .sort_values(ascending=False)
+            )
             anomaly_ranking = [
-                {'name': name, 'value': int(count), 'detail': f'{count}次'}
-                for name, count in anomaly_counts.most_common(10)
+                {'name': name, 'value': int(count), 'detail': f'{count}人天'}
+                for name, count in unknown_counts.head(10).items()
             ]
 
         # 12. 最晚下班排行榜
@@ -1480,14 +1726,12 @@ class ExcelProcessor:
                         'detail': row['最晚打卡时间']
                     })
 
-        # 13. 最长工时排行榜（按平均工时排名）
+        # 13. 最长工时排行榜（按平均工时排名，工作日）
         longest_hours_ranking = []
-        if '工时' in dept_df.columns and '姓名' in dept_df.columns:
-            # 先按人员分组计算平均工时
-            person_avg_hours = dept_df[dept_df['工时'].notna()].groupby('姓名')['工时'].mean()
-            # 按平均工时降序排列
+        if '工时' in dept_df.columns and '姓名' in dept_df.columns and '当日状态判断' in dept_df.columns:
+            workday_df = dept_df[dept_df['当日状态判断'] == '上班']
+            person_avg_hours = workday_df[workday_df['工时'].notna() & (workday_df['工时'] != 0)].groupby('姓名')['工时'].mean()
             person_avg_hours = person_avg_hours.sort_values(ascending=False)
-            # 取前10名
             for name, avg_hours in person_avg_hours.head(10).items():
                 longest_hours_ranking.append({
                     'name': name,
@@ -1503,6 +1747,7 @@ class ExcelProcessor:
             'weekend_work_days': weekend_work_days,
             'workday_attendance_days': workday_attendance_days,
             'avg_work_hours': round(avg_work_hours, 2),
+            'holiday_avg_work_hours': round(holiday_avg_work_hours, 2),
             'travel_days': travel_days,
             'leave_days': leave_days,
             'anomaly_days': anomaly_days,
@@ -1561,10 +1806,10 @@ class ExcelProcessor:
                     for name, count in travel_counts.items()
                 ]
 
-        # 4. 平均工时排行榜（按人，在整个一级部门范围内）
         avg_hours_ranking = []
-        if '工时' in level1_df.columns and '姓名' in level1_df.columns:
-            person_avg_hours = level1_df[level1_df['工时'].notna()].groupby('姓名')['工时'].mean()
+        if '工时' in level1_df.columns and '姓名' in level1_df.columns and '当日状态判断' in level1_df.columns:
+            workday_df = level1_df[level1_df['当日状态判断'] == '上班']
+            person_avg_hours = workday_df[workday_df['工时'].notna() & (workday_df['工时'] != 0)].groupby('姓名')['工时'].mean()
             person_avg_hours = person_avg_hours.sort_values(ascending=False)
             for name, avg_hours in person_avg_hours.head(10).items():
                 avg_hours_ranking.append({
@@ -1586,10 +1831,27 @@ class ExcelProcessor:
 
                 # 计算平均工时
                 avg_hours = 0
-                if '工时' in l2_df.columns:
-                    valid_hours = l2_df[l2_df['当日状态判断'] == '上班']['工时'].dropna()
+                holiday_avg_hours = 0
+                if '工时' in l2_df.columns and '当日状态判断' in l2_df.columns:
+                    valid_hours = l2_df[(l2_df['当日状态判断'] == '上班') & (l2_df['工时'] != 0)]['工时'].dropna()
                     if not valid_hours.empty:
                         avg_hours = float(valid_hours.mean())
+
+                    # 节假日平均工时计算（公休日上班）
+                    holiday_data = l2_df[l2_df['当日状态判断'] == '公休日上班']
+                    self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日('公休日上班')记录数: {len(holiday_data)}")
+                    if len(holiday_data) > 0:
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时字段前5个值: {holiday_data['工时'].head(5).tolist()}")
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时=0的记录数: {(holiday_data['工时'] == 0).sum()}")
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时为NaN的记录数: {holiday_data['工时'].isna().sum()}")
+                    holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                    self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日有效工时记录(工时!=0且非NaN): {len(holiday_valid_hours)}")
+                    if not holiday_valid_hours.empty:
+                        holiday_avg_hours = float(holiday_valid_hours.mean())
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日平均工时: {holiday_avg_hours:.2f}小时 (基于{len(holiday_valid_hours)}条记录)")
+                        self.logger.info(f"[一级部门统计-{level1_name}/{l2_dept}] 节假日工时样本: {holiday_valid_hours.head(5).tolist()}")
+                    else:
+                        self.logger.warning(f"[一级部门统计-{level1_name}/{l2_dept}] ⚠️  节假日平均工时为0 - 没有有效工时记录")
 
                 # 工作日出勤天数
                 workday_attendance_days = 0
@@ -1601,13 +1863,8 @@ class ExcelProcessor:
                 if '当日状态判断' in l2_df.columns:
                     weekend_work_days = int(l2_df[l2_df['当日状态判断'] == '公休日上班'].shape[0])
 
-                # 周末出勤次数
-                weekend_attendance_count = 0
-                if '日期' in l2_df.columns and '当日状态判断' in l2_df.columns:
-                    l2_df_copy = l2_df.copy()
-                    l2_df_copy['weekday'] = l2_df_copy['日期'].dt.dayofweek
-                    weekend_df = l2_df_copy[l2_df_copy['weekday'].isin([5, 6])]
-                    weekend_attendance_count = int(weekend_df[weekend_df['当日状态判断'].isin(['上班', '出差'])].shape[0])
+                # 周末出勤次数（同步公休日上班统计，保持与饼图数据一致）
+                weekend_attendance_count = weekend_work_days
 
                 # 出差天数
                 travel_days = 0
@@ -1619,10 +1876,9 @@ class ExcelProcessor:
                 if '当日状态判断' in l2_df.columns:
                     leave_days = int(l2_df[l2_df['当日状态判断'] == '请假'].shape[0])
 
-                # 异常天数
-                anomalies = self.cross_check_attendance_travel()
-                dept_anomalies = [a for a in anomalies if a.get('department') == l2_dept]
-                anomaly_days = len(dept_anomalies)
+                # 未知天数（疑似异常）
+                unknown_mask = self._unknown_status_mask(l2_df)
+                anomaly_days = int(unknown_mask.sum())
 
                 # 晚上7:30后下班人数
                 late_after_1930_count = 0
@@ -1636,6 +1892,7 @@ class ExcelProcessor:
                     'name': l2_dept,
                     'person_count': person_count,
                     'avg_work_hours': round(avg_hours, 2),
+                    'holiday_avg_work_hours': round(holiday_avg_hours, 2),
                     'workday_attendance_days': workday_attendance_days,
                     'weekend_work_days': weekend_work_days,
                     'weekend_attendance_count': weekend_attendance_count,
@@ -1657,3 +1914,192 @@ class ExcelProcessor:
             'avg_hours_ranking': avg_hours_ranking,
             'level2_department_stats': level2_department_stats
         }
+
+    def get_level2_department_statistics(self, level2_name: str) -> Dict[str, Any]:
+        """
+        获取二级部门的汇总统计数据（用于三级部门表格下方的统计展示）
+
+        Args:
+            level2_name: 二级部门名称
+
+        Returns:
+            包含以下统计数据的字典:
+            - total_travel_cost: 累计差旅成本
+            - attendance_days_distribution: 考勤天数分布
+            - travel_ranking: 出差排行榜（按人）
+            - avg_hours_ranking: 平均工时排行榜（按人）
+            - level3_department_stats: 三级部门统计列表（包含所有指标）
+        """
+        df = self.clean_attendance_data()
+        if df.empty:
+            return {}
+
+        level2_df = df[df['二级部门'] == level2_name].copy()
+        if level2_df.empty:
+            return {}
+
+        parent_department = None
+        if '一级部门' in level2_df.columns:
+            parents = level2_df['一级部门'].dropna().unique().tolist()
+            parent_department = parents[0] if parents else None
+
+        # 1. 累计差旅成本（以二级部门为单位，确保包含未分配三级部门的数据）
+        level2_costs = self._calculate_costs_by_department(level2_df, '二级部门')
+        total_travel_cost = 0
+        if level2_name in level2_costs:
+            total_travel_cost = level2_costs[level2_name].get('total_cost', 0)
+        else:
+            # 兜底：按三级部门汇总成本
+            level3_costs = self._calculate_costs_by_department(level2_df, '三级部门')
+            total_travel_cost = sum(info.get('total_cost', 0) for info in level3_costs.values())
+
+        # 2. 考勤天数分布（整个二级部门）
+        attendance_days_distribution = {}
+        if '当日状态判断' in level2_df.columns:
+            attendance_days_distribution = level2_df['当日状态判断'].value_counts().to_dict()
+
+        # 3. 出差排行榜（按人）
+        travel_ranking = []
+        if '当日状态判断' in level2_df.columns:
+            travel_df = level2_df[level2_df['当日状态判断'] == '出差']
+            if not travel_df.empty and '姓名' in travel_df.columns:
+                travel_counts = travel_df['姓名'].value_counts().head(10)
+                travel_ranking = [
+                    {'name': name, 'value': int(count), 'detail': f'{count}天'}
+                    for name, count in travel_counts.items()
+                ]
+
+        # 4. 平均工时排行榜（工作日）
+        avg_hours_ranking = []
+        if '工时' in level2_df.columns and '姓名' in level2_df.columns and '当日状态判断' in level2_df.columns:
+            workday_df = level2_df[level2_df['当日状态判断'] == '上班']
+            person_avg_hours = workday_df[workday_df['工时'].notna() & (workday_df['工时'] != 0)].groupby('姓名')['工时'].mean()
+            person_avg_hours = person_avg_hours.sort_values(ascending=False)
+            for name, avg_hours in person_avg_hours.head(10).items():
+                avg_hours_ranking.append({
+                    'name': name,
+                    'value': float(round(avg_hours, 2)),
+                    'detail': f'{avg_hours:.2f}小时'
+                })
+
+        # 5. 三级部门统计
+        level3_department_stats = []
+        if '三级部门' in level2_df.columns:
+            level3_list = level2_df['三级部门'].dropna().unique().tolist()
+            level3_costs = self._calculate_costs_by_department(level2_df, '三级部门')
+
+            for l3_dept in level3_list:
+                l3_df = level2_df[level2_df['三级部门'] == l3_dept]
+
+                person_count = l3_df['姓名'].nunique() if '姓名' in l3_df.columns else 0
+
+                avg_hours = 0
+                holiday_avg_hours = 0
+                if '工时' in l3_df.columns and '当日状态判断' in l3_df.columns:
+                    valid_hours = l3_df[(l3_df['当日状态判断'] == '上班') & (l3_df['工时'] != 0)]['工时'].dropna()
+                    if not valid_hours.empty:
+                        avg_hours = float(valid_hours.mean())
+
+                    holiday_data = l3_df[l3_df['当日状态判断'] == '公休日上班']
+                    holiday_valid_hours = holiday_data[holiday_data['工时'] != 0]['工时'].dropna()
+                    if not holiday_valid_hours.empty:
+                        holiday_avg_hours = float(holiday_valid_hours.mean())
+
+                workday_attendance_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    workday_attendance_days = int(l3_df[l3_df['当日状态判断'] == '上班'].shape[0])
+
+                weekend_work_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    weekend_work_days = int(l3_df[l3_df['当日状态判断'] == '公休日上班'].shape[0])
+
+                weekend_attendance_count = weekend_work_days
+
+                travel_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    travel_days = int(l3_df[l3_df['当日状态判断'] == '出差'].shape[0])
+
+                leave_days = 0
+                if '当日状态判断' in l3_df.columns:
+                    leave_days = int(l3_df[l3_df['当日状态判断'] == '请假'].shape[0])
+
+                unknown_mask = self._unknown_status_mask(l3_df)
+                anomaly_days = int(unknown_mask.sum())
+
+                late_after_1930_count = 0
+                if '最晚19:30之后' in l3_df.columns:
+                    late_after_1930_count = int(l3_df[l3_df['最晚19:30之后'] == '符合']['姓名'].nunique())
+
+                cost_info = level3_costs.get(l3_dept, {'total_cost': 0})
+
+                level3_department_stats.append({
+                    'name': l3_dept,
+                    'person_count': person_count,
+                    'avg_work_hours': round(avg_hours, 2),
+                    'holiday_avg_work_hours': round(holiday_avg_hours, 2),
+                    'workday_attendance_days': workday_attendance_days,
+                    'weekend_work_days': weekend_work_days,
+                    'weekend_attendance_count': weekend_attendance_count,
+                    'travel_days': travel_days,
+                    'leave_days': leave_days,
+                    'anomaly_days': anomaly_days,
+                    'late_after_1930_count': late_after_1930_count,
+                    'total_cost': float(cost_info.get('total_cost', 0))
+                })
+
+            level3_department_stats.sort(key=lambda x: x['total_cost'], reverse=True)
+
+        return {
+            'department_name': level2_name,
+            'parent_department': parent_department,
+            'total_travel_cost': round(total_travel_cost, 2),
+            'attendance_days_distribution': attendance_days_distribution,
+            'travel_ranking': travel_ranking,
+            'avg_hours_ranking': avg_hours_ranking,
+            'level3_department_stats': level3_department_stats
+        }
+
+    def get_available_months(self) -> List[str]:
+        """获取所有可用的月份列表（从差旅数据中提取，格式：YYYY-M，按时间升序排列）"""
+        # Ensure data is loaded
+        if not self.sheets_data:
+            self.load_all_sheets()
+
+        months_set = set()
+
+        flight_df = self.clean_travel_data('机票')
+        if not flight_df.empty and '起飞日期' in flight_df.columns:
+            months = flight_df['起飞日期'].dt.strftime('%Y-%m').dropna().unique()
+            months_set.update(months)
+
+        hotel_df = self.clean_travel_data('酒店')
+        if not hotel_df.empty and '入住日期' in hotel_df.columns:
+            months = hotel_df['入住日期'].dt.strftime('%Y-%m').dropna().unique()
+            months_set.update(months)
+
+        train_df = self.clean_travel_data('火车票')
+        if not train_df.empty and '出发日期' in train_df.columns:
+            months = train_df['出发日期'].dt.strftime('%Y-%m').dropna().unique()
+            months_set.update(months)
+
+        return sorted(list(months_set))
+
+    def _save_cache(self, cache_path: str, data: Dict[str, Any]):
+        """Save analysis results to JSON cache file"""
+        import json
+        from pathlib import Path
+
+        cache_file = Path(cache_path)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+
+        temp_path = cache_file.with_suffix('.tmp')
+        try:
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            temp_path.replace(cache_file)
+            self.logger.info(f"Cache saved to: {cache_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to save cache: {e}")
+            if temp_path.exists():
+                temp_path.unlink()
+            raise

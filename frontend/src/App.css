@@ -1,8 +1,13 @@
 /* CostMatrix 全局样式 */
 
+html, body {
+  width: 100%;
+  min-height: 100%;
+}
+
 #root {
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
 }
 
 /* 页面容器 */
@@ -95,7 +100,7 @@
   .ant-statistic-content {
     font-size: 24px;
   }
-  
+
   .ant-card {
     margin-bottom: 16px;
   }

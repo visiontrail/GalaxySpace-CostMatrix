@@ -16,6 +16,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - DEBUG=True
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DB_TYPE=${DB_TYPE:-mysql}
+      - DB_HOST=${DB_HOST:-host.docker.internal}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_NAME=${DB_NAME:-costmatrix}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_CHARSET=${DB_CHARSET:-utf8mb4}
     networks:
       - corppilot-network
     healthcheck:
@@ -47,4 +55,3 @@ services:
 networks:
   corppilot-network:
     driver: bridge
-

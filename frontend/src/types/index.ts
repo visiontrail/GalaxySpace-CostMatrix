@@ -3,10 +3,42 @@
  * 完全对应后端 POST /api/analyze 的返回结构
  */
 
+// ============ 用户与认证 ============
+export interface UserInfo {
+  username: string
+  is_admin: boolean
+  created_at?: string
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user: UserInfo
+}
+
+export interface CreateUserPayload {
+  username: string
+  password: string
+  is_admin?: boolean
+}
+
+export interface UpdateUserPayload {
+  password?: string
+  is_admin?: boolean
+  is_active?: boolean
+}
+
+export interface ChangePasswordPayload {
+  current_password: string
+  new_password: string
+  confirm_password: string
+}
+
 // ============ 汇总统计 ============
 export interface Summary {
   total_cost: number        // 总成本
-  avg_work_hours: number    // 平均工时
+  avg_work_hours: number    // 工作日平均工时
+  holiday_avg_work_hours?: number  // 节假日平均工时
   anomaly_count: number     // 异常数量
   total_orders?: number     // 订单总数
   order_breakdown?: {
@@ -28,10 +60,11 @@ export interface Summary {
 
 // ============ 部门统计 ============
 export interface DepartmentStat {
-  dept: string              // 部门名称
-  cost: number              // 部门成本
-  avg_hours: number         // 平均工时
-  headcount: number         // 人数
+  dept: string
+  cost: number
+  avg_hours: number
+  holiday_avg_hours: number
+  headcount: number
 }
 
 // ============ 项目 Top10 ============
@@ -39,6 +72,9 @@ export interface ProjectTop10 {
   code: string              // 项目代码
   name: string              // 项目名称
   cost: number              // 项目成本
+  flight_cost?: number      // 机票成本
+  hotel_cost?: number       // 酒店成本
+  train_cost?: number       // 火车票成本
 }
 
 // ============ 项目详细信息 ============
@@ -87,6 +123,16 @@ export interface Anomaly {
   detail: string            // 详细说明
 }
 
+// ============ 异常记录详情 ============
+export interface AnomalyDetail {
+  date: string              // 日期
+  name: string              // 姓名
+  dept: string              // 部门
+  type: string              // 异常类型
+  status?: string           // 考勤状态
+  detail: string            // 详细说明
+}
+
 // ============ 完整分析结果 ============
 export interface AnalysisResult {
   summary: Summary
@@ -112,9 +158,20 @@ export interface UploadRecord {
   parsed?: boolean
   last_analyzed_at?: string | null
   exists?: boolean
+  task_id?: string
 }
 
 export type UploadResponse = UploadRecord
+
+export interface MonthContextValue {
+  availableMonths: string[]
+  selectedMonths: string[]
+  pendingMonths: string[]
+  setPendingMonths: (months: string[]) => void
+  applySelectedMonths: (months?: string[]) => void
+  refreshMonths: () => Promise<void>
+  deleteMonth: (month: string) => Promise<void>
+}
 
 // ============ 部门层级结构 ============
 export interface DepartmentHierarchy {
@@ -125,45 +182,92 @@ export interface DepartmentHierarchy {
 
 // ============ 部门列表项 ============
 export interface DepartmentListItem {
-  name: string                        // 部门名称
-  level: number                       // 部门层级 (1=一级, 2=二级, 3=三级)
-  parent?: string                     // 父部门名称
-  person_count: number                // 人数
-  total_cost: number                  // 总成本
-  avg_work_hours: number              // 平均工时
+  name: string
+  level: number
+  parent?: string
+  person_count: number
+  total_cost: number
+  avg_work_hours: number
+  holiday_avg_work_hours: number
 }
 
 // ============ 员工排行榜项 ============
 export interface EmployeeRanking {
-  name: string                        // 员工姓名
-  value: number                       // 数值（用于排序）
-  detail?: string                     // 详情展示
+  name: string
+  value: number
+  detail?: string
 }
 
 // ============ 部门详细指标 ============
 export interface DepartmentDetailMetrics {
-  department_name: string             // 部门名称
-  department_level: string            // 部门层级
-  parent_department?: string | null   // 父部门
+  department_name: string
+  department_level: string
+  parent_department?: string | null
 
-  // 考勤相关指标
-  attendance_days_distribution: Record<string, number>  // 当月考勤天数分布
-  weekend_work_days: number           // 公休日上班天数
-  workday_attendance_days: number     // 工作日出勤天数
-  avg_work_hours: number              // 工作日平均工时
+  attendance_days_distribution: Record<string, number>
+  weekend_work_days: number
+  workday_attendance_days: number
+  avg_work_hours: number
+  holiday_avg_work_hours: number
 
-  // 状态天数
-  travel_days: number                 // 出差天数
-  leave_days: number                  // 请假天数
+  travel_days: number
+  leave_days: number
 
-  // 异常统计
-  anomaly_days: number                // 异常天数
-  late_after_1930_count: number       // 晚上7:30后下班人数
-  weekend_attendance_count: number    // 周末出勤次数
+  anomaly_days: number // 未知天数（疑似异常）
+  late_after_1930_count: number
+  weekend_attendance_count: number
 
-  // 排行榜
-  travel_ranking: EmployeeRanking[]   // 出差排行榜
-  anomaly_ranking: EmployeeRanking[]  // 异常排行榜
-  latest_checkout_ranking: EmployeeRanking[]  // 最晚下班排行榜
-  longest_hours_ranking: EmployeeRanking[]    // 最长工时排行榜
+  travel_ranking: EmployeeRanking[]
+  anomaly_ranking: EmployeeRanking[]
+  latest_checkout_ranking: EmployeeRanking[]
+  longest_hours_ranking: EmployeeRanking[]
+}
+
+export interface Level2DepartmentStats {
+  name: string
+  person_count: number
+  avg_work_hours: number
+  holiday_avg_work_hours: number
+  workday_attendance_days: number
+  weekend_work_days: number
+  weekend_attendance_count: number
+  travel_days: number
+  leave_days: number
+  anomaly_days: number // 未知天数（疑似异常）
+  late_after_1930_count: number
+  total_cost: number
+}
+
+export interface Level3DepartmentStats {
+  name: string
+  person_count: number
+  avg_work_hours: number
+  holiday_avg_work_hours: number
+  workday_attendance_days: number
+  weekend_work_days: number
+  weekend_attendance_count: number
+  travel_days: number
+  leave_days: number
+  anomaly_days: number
+  late_after_1930_count: number
+  total_cost: number
+}
+
+export interface Level1DepartmentStatistics {
+  department_name: string
+  total_travel_cost: number
+  attendance_days_distribution: Record<string, number>
+  travel_ranking: EmployeeRanking[]
+  avg_hours_ranking: EmployeeRanking[]
+  level2_department_stats: Level2DepartmentStats[]
+}
+
+export interface Level2DepartmentStatistics {
+  department_name: string
+  parent_department?: string | null
+  total_travel_cost: number
+  attendance_days_distribution: Record<string, number>
+  travel_ranking: EmployeeRanking[]
+  avg_hours_ranking: EmployeeRanking[]
+  level3_department_stats: Level3DepartmentStats[]
 }

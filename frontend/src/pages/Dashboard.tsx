@@ -13,8 +13,8 @@ import {
   Space,
   Typography,
   Divider,
-  Popconfirm,
   Spin,
+  Tooltip,
 } from 'antd'
 import {
   DollarOutlined,
@@ -25,28 +25,23 @@ import {
   ReloadOutlined,
   TeamOutlined,
   ProjectOutlined,
-  FileTextOutlined,
-  DeleteOutlined
+  CalendarOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
-import type { AnalysisResult, Anomaly, DepartmentStat, ProjectTop10, UploadRecord } from '@/types'
-import { analyzeExcel, clearData, exportResults, exportPpt } from '@/services/api'
-import { useOutletContext } from 'react-router-dom'
-import type { UploadContextValue } from '@/layouts/MainLayout'
+import type { AnalysisResult, DepartmentStat, ProjectTop10 } from '@/types'
+import { analyzeExcel } from '@/services/api'
+import { useMonthContext } from '@/contexts/MonthContext'
 
 const { Title, Text } = Typography
 
 const Dashboard = () => {
   const navigate = useNavigate()
   const [data, setData] = useState<AnalysisResult | null>(null)
-  const [currentFile, setCurrentFile] = useState<string>('')
-  const [currentFileName, setCurrentFileName] = useState<string>('')
   const [exporting, setExporting] = useState(false)
-  const [exportingPpt, setExportingPpt] = useState(false)
-  const [clearing, setClearing] = useState(false)
   const [loadingData, setLoadingData] = useState(false)
-  const { selectedUpload, refreshUploads } = useOutletContext<UploadContextValue>()
+  const { selectedMonths, availableMonths, refreshMonths } = useMonthContext()
 
   // ECharts 图表引用，用于导出图片
   const departmentCostChartRef = useRef<any>(null)
@@ -56,25 +51,28 @@ const Dashboard = () => {
   const flightOverTypeChartRef = useRef<any>(null)
 
   useEffect(() => {
-    if (selectedUpload?.file_path) {
-      fetchAnalysis(selectedUpload)
-    } else {
-      loadData()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUpload?.file_path])
+    refreshMonths()
+  }, [refreshMonths])
 
-  const fetchAnalysis = async (upload: UploadRecord) => {
+  useEffect(() => {
+    if (selectedMonths.length > 0) {
+      fetchData()
+    } else {
+      setData(null)
+    }
+  }, [selectedMonths])
+
+  const fetchData = async () => {
+    if (selectedMonths.length === 0) {
+      return
+    }
+
     setLoadingData(true)
     try {
-      const result = await analyzeExcel(upload.file_path)
+      // 调用数据库分析API，传递月份参数
+      const result = await analyzeExcel(undefined, { months: selectedMonths })
       if (result.success && result.data) {
         setData(result.data)
-        setCurrentFile(upload.file_path)
-        setCurrentFileName(upload.file_name)
-        localStorage.setItem('dashboard_data', JSON.stringify(result.data))
-        localStorage.setItem('current_file', upload.file_path)
-        localStorage.setItem('current_file_name', upload.file_name)
       } else {
         message.error(result.message || '数据加载失败')
       }
@@ -82,85 +80,19 @@ const Dashboard = () => {
       message.error(error.message || '数据加载失败')
     } finally {
       setLoadingData(false)
-      refreshUploads()
-    }
-  }
-
-  const loadData = () => {
-    const savedData = localStorage.getItem('dashboard_data')
-    const savedFile = localStorage.getItem('current_file')
-    const savedFileName = localStorage.getItem('current_file_name')
-    
-    if (savedData) {
-      try {
-        const parsedData = JSON.parse(savedData)
-        // 确保关键属性存在，提供默认值
-        const summary = parsedData.summary || {}
-        const safeSummary = {
-          total_cost: summary.total_cost ?? 0,
-          avg_work_hours: summary.avg_work_hours ?? 0,
-          anomaly_count: summary.anomaly_count ?? 0,
-          total_orders: summary.total_orders ?? summary.order_breakdown?.total ?? 0,
-          order_breakdown: summary.order_breakdown || {
-            total: summary.total_orders ?? 0,
-            flight: 0,
-            hotel: 0,
-            train: 0
-          },
-          over_standard_count: summary.over_standard_count ?? summary.over_standard_breakdown?.total ?? 0,
-          over_standard_breakdown: summary.over_standard_breakdown || {
-            total: 0,
-            flight: 0,
-            hotel: 0,
-            train: 0
-          },
-          flight_over_type_breakdown: summary.flight_over_type_breakdown 
-            || summary.over_standard_breakdown?.flight_over_types 
-            || {}
-        }
-        const safeData = {
-          ...parsedData,
-          department_stats: parsedData.department_stats || [],
-          project_top10: parsedData.project_top10 || [],
-          anomalies: parsedData.anomalies || [],
-          summary: safeSummary
-        }
-        setData(safeData)
-      } catch (error) {
-        console.error('Failed to parse dashboard data:', error)
-        message.error('数据加载失败')
-      }
-    }
-    
-    if (savedFile) {
-      setCurrentFile(savedFile)
-    }
-    if (savedFileName) {
-      setCurrentFileName(savedFileName)
     }
   }
 
   const handleExport = async () => {
-    if (!currentFile) {
-      message.warning('请先上传并分析文件')
+    if (selectedMonths.length === 0) {
+      message.warning('请先选择月份')
       return
     }
 
     setExporting(true)
     try {
-      const blob = await exportResults(currentFile)
-      
-      // 创建下载链接
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `分析结果_${new Date().getTime()}.xlsx`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-      
-      message.success('导出成功！')
+      // 导出功能需要文件路径，这里暂时禁用或需要后端支持按月份导出
+      message.warning('数据库模式下的导出功能正在开发中')
     } catch (error: any) {
       message.error(error.message || '导出失败')
     } finally {
@@ -168,106 +100,34 @@ const Dashboard = () => {
     }
   }
 
-  const handleExportPpt = async () => {
-    if (!data) {
-      message.warning('暂无数据可导出')
-      return
-    }
-
-    setExportingPpt(true)
-
-    try {
-      // 1. 捕获所有图表为 base64 图片
-      const charts = []
-
-      // 获取 ECharts 实例并导出图片
-      const chartRefs = [
-        { ref: departmentCostChartRef, title: '部门成本分布' },
-        { ref: projectCostChartRef, title: '项目成本排名（Top 20）' },
-        { ref: departmentHoursChartRef, title: '部门平均工时' },
-        { ref: deptHeadcountCostChartRef, title: '部门人数与成本关系' },
-        { ref: flightOverTypeChartRef, title: '机票超标类型分布' }
-      ]
-
-      for (const { ref, title } of chartRefs) {
-        if (ref.current) {
-          const echartInstance = ref.current.getEchartsInstance()
-          const imageBase64 = echartInstance.getDataURL({
-            type: 'png',
-            pixelRatio: 2,  // 高清图片
-            backgroundColor: '#fff'
-          })
-          charts.push({ title, image: imageBase64 })
-        }
-      }
-
-      // 2. 调用 API 导出 PPT
-      const blob = await exportPpt(data, charts)
-
-      // 3. 下载文件
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `CostMatrix分析报告_${new Date().getTime()}.pptx`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-
-      message.success('PPT 导出成功！')
-    } catch (error: any) {
-      message.error(error.message || 'PPT 导出失败')
-    } finally {
-      setExportingPpt(false)
-    }
-  }
-
-  const handleClearData = async () => {
-    if (!currentFile) {
-      message.warning('暂无可清除的数据文件，请先上传并选择文件')
-      return
-    }
-
-    setClearing(true)
-    try {
-      await clearData(currentFile)
-      message.success('当前数据文件已清除，请重新上传')
-    } catch (error: any) {
-      message.error(error.message || '清除数据失败（本地缓存已清空）')
-    } finally {
-      localStorage.removeItem('dashboard_data')
-      localStorage.removeItem('current_file')
-      localStorage.removeItem('current_file_name')
-      setData(null)
-      setCurrentFile('')
-      setCurrentFileName('')
-      setClearing(false)
-      refreshUploads()
-    }
-  }
-
-  // 空状态
-  if (!data || !data.department_stats || !data.project_top10 || !data.anomalies) {
+  // 空状态 - 没有选择月份
+  if (selectedMonths.length === 0 || availableMonths.length === 0) {
     return (
-      <Spin spinning={loadingData} tip="正在加载数据">
-        <div style={{ textAlign: 'center', padding: '100px 0' }}>
-          <Empty
-            description="暂无数据，请先上传 Excel 文件进行分析"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
+      <div style={{ textAlign: 'center', padding: '100px 0' }}>
+        <Empty
+          description={availableMonths.length === 0 ? "暂无数据，请先上传 Excel 文件" : "请从左侧选择月份查看数据"}
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        >
+          {availableMonths.length === 0 && (
             <Button type="primary" href="/upload">
               立即上传
             </Button>
-          </Empty>
-        </div>
-      </Spin>
+          )}
+        </Empty>
+      </div>
     )
   }
 
-  if (loadingData) {
+  // 加载状态
+  if (loadingData || !data) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <Spin size="large" tip="正在加载数据..." />
+        <Space direction="vertical" size="middle">
+          <Spin size="large" />
+          <Text type="secondary">
+            正在加载 {selectedMonths.map(formatMonthDisplay).join('、')} 数据...
+          </Text>
+        </Space>
       </div>
     )
   }
@@ -323,6 +183,7 @@ const Dashboard = () => {
         name: '部门成本',
         type: 'pie',
         radius: ['40%', '70%'],
+        center: ['40%', '50%'],
         avoidLabelOverlap: false,
         itemStyle: {
           borderRadius: 10,
@@ -331,7 +192,12 @@ const Dashboard = () => {
         },
         label: {
           show: true,
-          formatter: '{b}: {d}%'
+          formatter: (params: any) => {
+            const name = params.name || ''
+            const percent = params.percent || 0
+            const formattedName = name.replace(/(.{5})/g, '$1\n')
+            return `${formattedName}\n${percent}%`
+          }
         },
         emphasis: {
           label: {
@@ -388,17 +254,17 @@ const Dashboard = () => {
     yAxis: {
       type: 'category',
       data: data.project_top10
-        .map(item => item.name.length > 10 ? item.name.substring(0, 10) + '...' : item.name)
-        .reverse(),
+        .map(item => item.name.length > 10 ? item.name.substring(0, 10) + '...' : item.name),
       axisLabel: {
         interval: 0
-      }
+      },
+      inverse: true
     },
     series: [
       {
         name: '成本',
         type: 'bar',
-        data: data.project_top10.map(item => item.cost).reverse(),
+        data: data.project_top10.map(item => item.cost),
         itemStyle: {
           color: '#5470c6',
           borderRadius: [0, 5, 5, 0]
@@ -422,6 +288,18 @@ const Dashboard = () => {
         fontWeight: 'bold'
       }
     },
+    graphic: [
+      {
+        type: 'text',
+        left: 'center',
+        top: 45,
+        style: {
+          text: '基于工作日计算的平均工时',
+          fontSize: 12,
+          fill: '#999'
+        }
+      }
+    ],
     tooltip: {
       trigger: 'axis',
       axisPointer: {
@@ -432,12 +310,13 @@ const Dashboard = () => {
       left: '3%',
       right: '4%',
       bottom: '3%',
-      top: 50,
+      top: 70,
       containLabel: true
     },
     xAxis: {
       type: 'category',
       data: data.department_stats
+        .filter(item => item.dept !== '未知部门')
         .sort((a, b) => b.avg_hours - a.avg_hours)
         .slice(0, 15)
         .map(item => item.dept),
@@ -458,6 +337,7 @@ const Dashboard = () => {
         name: '平均工时',
         type: 'bar',
         data: data.department_stats
+          .filter(item => item.dept !== '未知部门')
           .sort((a, b) => b.avg_hours - a.avg_hours)
           .slice(0, 15)
           .map(item => item.avg_hours),
@@ -493,7 +373,7 @@ const Dashboard = () => {
     },
     grid: {
       left: '3%',
-      right: '7%',
+      right: '15%',
       bottom: '3%',
       top: 50,
       containLabel: true
@@ -515,13 +395,85 @@ const Dashboard = () => {
         show: true
       }
     },
+    graphic: [
+      {
+        type: 'text',
+        left: '15%',
+        top: '30%',
+        style: {
+          text: '小型高成本\n(人均成本高)',
+          fontSize: 12,
+          fill: '#999',
+          fontWeight: 'lighter',
+          lineHeight: 16
+        }
+      },
+      {
+        type: 'text',
+        right: '15%',
+        bottom: '30%',
+        style: {
+          text: '大型低成本\n(人均成本低)',
+          fontSize: 12,
+          fill: '#999',
+          fontWeight: 'lighter',
+          lineHeight: 16
+        }
+      }
+    ],
     series: [
       {
         type: 'scatter',
-        symbolSize: 20,
-        data: data.department_stats.map(item => [item.headcount, item.cost]),
-        itemStyle: {
-          color: '#ee6666'
+        symbolSize: (data: any) => Math.max(10, Math.min(30, data[0] * 1.5)),
+        data: data.department_stats.map((item, index) => ({
+          value: [item.headcount, item.cost],
+          itemStyle: {
+            color: [
+              '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+              '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#1890ff',
+              '#52c41a', '#faad14', '#f5222d', '#13c2c2', '#722ed1'
+            ][index % 15]
+          }
+        })),
+        label: {
+          show: true,
+          position: 'right',
+          formatter: (params: any) => {
+            const dept = data.department_stats[params.dataIndex]
+            const sortedByCost = [...data.department_stats].sort((a, b) => b.cost - a.cost)
+            const sortedByHeadcount = [...data.department_stats].sort((a, b) => b.headcount - a.headcount)
+            const topCostIndex = sortedByCost.findIndex(d => d.dept === dept.dept)
+            const topHeadcountIndex = sortedByHeadcount.findIndex(d => d.dept === dept.dept)
+            if (topCostIndex < 10 || topHeadcountIndex < 5) {
+              return dept.dept
+            }
+            return ''
+          },
+          fontSize: 10,
+          color: '#333',
+          backgroundColor: 'rgba(255, 255, 255, 0.7)',
+          padding: [2, 4],
+          borderRadius: 3,
+          borderWidth: 1,
+          borderColor: '#ddd'
+        },
+        labelLayout: {
+          hideOverlap: true
+        },
+        emphasis: {
+          label: {
+            show: true,
+            fontSize: 12,
+            fontWeight: 'bold',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            padding: [3, 6]
+          },
+          itemStyle: {
+            borderColor: '#fff',
+            borderWidth: 2,
+            shadowBlur: 10,
+            shadowColor: 'rgba(0, 0, 0, 0.3)'
+          }
         }
       }
     ]
@@ -608,7 +560,8 @@ const Dashboard = () => {
       data: flightOverTypeData.map(item => item.name),
       axisLabel: {
         interval: 0
-      }
+      },
+      inverse: true
     },
     series: [
       {
@@ -652,18 +605,26 @@ const Dashboard = () => {
       )
     },
     {
-      title: '平均工时 (小时)',
+      title: '工作日平均工时 (小时)',
       dataIndex: 'avg_hours',
       key: 'avg_hours',
-      width: 150,
+      width: 180,
       sorter: (a: DepartmentStat, b: DepartmentStat) => a.avg_hours - b.avg_hours,
       render: (value: number) => `${value.toFixed(1)} h`
     },
     {
-      title: '人数',
+      title: '节假日平均工时 (小时)',
+      dataIndex: 'holiday_avg_hours',
+      key: 'holiday_avg_hours',
+      width: 180,
+      sorter: (a: DepartmentStat, b: DepartmentStat) => a.holiday_avg_hours - b.holiday_avg_hours,
+      render: (value: number) => value > 0 ? `${value.toFixed(1)} h` : '-'
+    },
+    {
+      title: '人数（产生成本人员）',
       dataIndex: 'headcount',
       key: 'headcount',
-      width: 100,
+      width: 150,
       sorter: (a: DepartmentStat, b: DepartmentStat) => a.headcount - b.headcount,
       render: (value: number) => (
         <Tag color="blue">{value} 人</Tag>
@@ -673,11 +634,101 @@ const Dashboard = () => {
       title: '人均成本 (元)',
       key: 'avg_cost',
       width: 150,
-      sorter: (a: DepartmentStat, b: DepartmentStat) => 
+      sorter: (a: DepartmentStat, b: DepartmentStat) =>
         (a.cost / a.headcount) - (b.cost / b.headcount),
-      render: (_: any, record: DepartmentStat) => 
+      render: (_: any, record: DepartmentStat) =>
         `¥${(record.cost / record.headcount).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
     }
+  ]
+
+  // 异常记录表格列定义
+  const anomalyColumns = [
+    {
+      title: '日期',
+      dataIndex: 'date',
+      key: 'date',
+      width: 120,
+      fixed: 'left' as const,
+      sorter: (a: any, b: any) => a.date.localeCompare(b.date),
+      render: (date: string) => (
+        <Space>
+          <CalendarOutlined />
+          <Text>{date}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '姓名',
+      dataIndex: 'name',
+      key: 'name',
+      width: 120,
+      sorter: (a: any, b: any) => a.name.localeCompare(b.name),
+      render: (name: string) => (
+        <Space>
+          <UserOutlined />
+          <Text strong>{name}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '部门',
+      dataIndex: 'dept',
+      key: 'dept',
+      width: 150,
+      sorter: (a: any, b: any) => a.dept.localeCompare(b.dept),
+      render: (dept: string) => (
+        <Space>
+          <TeamOutlined />
+          <Text>{dept}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '异常类型',
+      dataIndex: 'type',
+      key: 'type',
+      width: 120,
+      sorter: (a: any, b: any) => a.type.localeCompare(b.type),
+      render: (type: string) => {
+        const colorMap: Record<string, string> = {
+          'A': 'red',
+          'Conflict': 'red',
+          'B': 'orange',
+          'Missing': 'orange',
+          'C': 'purple',
+          'Duplicate': 'purple',
+          'D': 'volcano',
+          'Invalid': 'volcano',
+        }
+        const displayType = type === 'A' ? '冲突' : type
+        return (
+          <Tag color={colorMap[type] || 'default'} icon={<WarningOutlined />}>
+            {displayType}
+          </Tag>
+        )
+      },
+    },
+    {
+      title: '考勤状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      render: (status?: string) => {
+        if (!status) return <Text type="secondary">-</Text>
+        return <Tag color="blue">{status}</Tag>
+      },
+    },
+    {
+      title: '详细说明',
+      dataIndex: 'detail',
+      key: 'detail',
+      ellipsis: true,
+      render: (detail: string) => (
+        <Tooltip title={detail}>
+          <Text>{detail}</Text>
+        </Tooltip>
+      ),
+    },
   ]
 
   // 项目表格列
@@ -687,14 +738,16 @@ const Dashboard = () => {
       dataIndex: 'code',
       key: 'code',
       width: 120,
-      fixed: 'left' as const
+      fixed: 'left' as const,
+      render: (value: string) => value === 'nan' ? '未知编号' : value
     },
     {
       title: '项目名称',
       dataIndex: 'name',
       key: 'name',
       ellipsis: true,
-      width: 200
+      width: 200,
+      render: (value: string) => value === 'nan' ? '未知项目' : value
     },
     {
       title: '成本 (元)',
@@ -707,79 +760,69 @@ const Dashboard = () => {
           ¥{value.toLocaleString()}
         </Text>
       )
+    },
+    {
+      title: '机票 (元)',
+      dataIndex: 'flight_cost',
+      key: 'flight_cost',
+      width: 120,
+      sorter: (a: any, b: any) => (a.flight_cost || 0) - (b.flight_cost || 0),
+      render: (value: number) => (
+        <Text style={{ color: '#1890ff' }}>
+          ¥{(value || 0).toLocaleString()}
+        </Text>
+      )
+    },
+    {
+      title: '酒店 (元)',
+      dataIndex: 'hotel_cost',
+      key: 'hotel_cost',
+      width: 120,
+      sorter: (a: any, b: any) => (a.hotel_cost || 0) - (b.hotel_cost || 0),
+      render: (value: number) => (
+        <Text style={{ color: '#722ed1' }}>
+          ¥{(value || 0).toLocaleString()}
+        </Text>
+      )
+    },
+    {
+      title: '火车票 (元)',
+      dataIndex: 'train_cost',
+      key: 'train_cost',
+      width: 120,
+      sorter: (a: any, b: any) => (a.train_cost || 0) - (b.train_cost || 0),
+      render: (value: number) => (
+        <Text style={{ color: '#fa8c16' }}>
+          ¥{(value || 0).toLocaleString()}
+        </Text>
+      )
     }
   ]
 
-  // 异常记录表格列
-  const anomalyColumns = [
-    {
-      title: '日期',
-      dataIndex: 'date',
-      key: 'date',
-      width: 120,
-      sorter: (a: Anomaly, b: Anomaly) => a.date.localeCompare(b.date)
-    },
-    {
-      title: '姓名',
-      dataIndex: 'name',
-      key: 'name',
-      width: 100
-    },
-    {
-      title: '部门',
-      dataIndex: 'dept',
-      key: 'dept',
-      width: 120
-    },
-    {
-      title: '异常类型',
-      dataIndex: 'type',
-      key: 'type',
-      width: 120,
-      render: (type: string) => {
-        const colorMap: Record<string, string> = {
-          'Conflict': 'red',
-          'Missing': 'orange',
-          'Duplicate': 'purple',
-          'Invalid': 'volcano'
-        }
-        return (
-          <Tag color={colorMap[type] || 'default'}>
-            {type}
-          </Tag>
-        )
-      }
-    },
-    {
-      title: '详细说明',
-      dataIndex: 'detail',
-      key: 'detail',
-      ellipsis: true
-    }
-  ]
+  function formatMonthDisplay(month: string) {
+    const [year, monthNum] = month.split('-')
+    return `${year}年${monthNum}月`
+  }
 
   return (
     <div>
       {/* 页面标题和操作按钮 */}
       <Space style={{ marginBottom: 24, width: '100%', justifyContent: 'space-between' }}>
-        <Title level={2} style={{ margin: 0 }}>
-          CostMatrix 管理驾驶舱
-        </Title>
+        <div>
+          <Title level={2} style={{ margin: 0 }}>
+            CostMatrix 成本管理中心
+          </Title>
+          <Space align="center" size={[4, 4]} wrap>
+            <Text type="secondary">当前统计月份:</Text>
+            {selectedMonths.map(month => (
+              <Tag key={month} color="blue">{formatMonthDisplay(month)}</Tag>
+            ))}
+          </Space>
+        </div>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadData}>
+          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loadingData}>
             刷新
           </Button>
-          <Popconfirm
-            title="确认清除当前数据？"
-            description={`将删除当前数据文件${currentFileName ? `（${currentFileName}）` : ''}及其缓存，操作不可恢复。`}
-            okText="确认清除"
-            cancelText="取消"
-            onConfirm={handleClearData}
-          >
-            <Button danger icon={<DeleteOutlined />} loading={clearing} disabled={!currentFile}>
-              清除数据
-            </Button>
-          </Popconfirm>
           <Button
             type="primary"
             icon={<DownloadOutlined />}
@@ -788,20 +831,13 @@ const Dashboard = () => {
           >
             导出分析结果
           </Button>
-          <Button
-            icon={<FileTextOutlined />}
-            loading={exportingPpt}
-            onClick={handleExportPpt}
-          >
-            导出 PPT
-          </Button>
         </Space>
       </Space>
 
       {/* 核心指标卡片 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable style={{ height: 120, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <Statistic
               title="总成本"
               value={data.summary.total_cost}
@@ -813,9 +849,9 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable style={{ height: 120, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <Statistic
-              title="平均工时"
+              title="工作日平均工时"
               value={data.summary.avg_work_hours}
               precision={1}
               prefix={<ClockCircleOutlined />}
@@ -825,18 +861,19 @@ const Dashboard = () => {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable style={{ height: 120, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <Statistic
-              title="异常记录"
-              value={data.summary.anomaly_count}
-              prefix={<WarningOutlined />}
-              suffix="条"
-              valueStyle={{ color: '#cf1322' }}
+              title="节假日平均工时"
+              value={data.summary.holiday_avg_work_hours ?? 0}
+              precision={1}
+              prefix={<ClockCircleOutlined />}
+              suffix="小时"
+              valueStyle={{ color: '#722ed1' }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card variant="borderless" hoverable>
+          <Card hoverable style={{ height: 120 }}>
             <Statistic
               title="超标订单"
               value={overStandardCount}
@@ -971,9 +1008,9 @@ const Dashboard = () => {
               />
             ) : (
               <div style={{ height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Empty 
-                  description="暂无机票超标类型数据" 
-                  image={Empty.PRESENTED_IMAGE_SIMPLE} 
+                <Empty
+                  description="暂无机票超标类型数据"
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               </div>
             )}
@@ -984,19 +1021,18 @@ const Dashboard = () => {
       <Divider orientation="left">详细数据</Divider>
 
       {/* 部门统计表格 */}
-      <Card 
+      <Card
         title={<><TeamOutlined /> 部门统计详情</>}
-        variant="borderless"
         style={{ marginBottom: 24 }}
       >
         <Table
           dataSource={data.department_stats}
           columns={deptColumns}
           rowKey="dept"
-          pagination={{ 
+          pagination={{
             pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 个部门`
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 个部门`,
           }}
           scroll={{ x: 800 }}
           size="middle"
@@ -1005,8 +1041,7 @@ const Dashboard = () => {
 
       {/* 项目统计表格 */}
       <Card
-        title={<><ProjectOutlined /> 项目成本详情（Top 20 + 其他）</>}
-        variant="borderless"
+        title={<><ProjectOutlined /> 项目成本详情（Top 20）</>}
         style={{ marginBottom: 24 }}
       >
         <Table
@@ -1020,25 +1055,21 @@ const Dashboard = () => {
       </Card>
 
       {/* 异常记录表格 */}
-      <Card 
+      <Card
         title={<><WarningOutlined /> 异常记录详情</>}
-        variant="borderless"
-        extra={
-          <Tag color="red">
-            共 {data.anomalies.length} 条异常
-          </Tag>
-        }
+        style={{ marginBottom: 24 }}
       >
         <Table
           dataSource={data.anomalies}
           columns={anomalyColumns}
-          rowKey={(record) => `${record.date}-${record.name}-${record.type}`}
-          pagination={{ 
-            pageSize: 10,
+          rowKey={(record) => `${record.date}-${record.name}-${record.dept}-${record.type}`}
+          pagination={{
+            pageSize: 20,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条异常记录`
+            showTotal: (total) => `共 ${total} 条异常记录`,
+            pageSizeOptions: ['10', '20', '50', '100'],
           }}
-          scroll={{ x: 800 }}
+          scroll={{ x: 1000 }}
           size="middle"
         />
       </Card>

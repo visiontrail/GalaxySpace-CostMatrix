@@ -20,6 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Dependencies hash files
+.backend_deps_hash
+.frontend_deps_hash
+
 # Virtual Environment
 venv/
 env/
@@ -33,6 +37,9 @@ ENV/
 *.swo
 *~
 .DS_Store
+
+# Claude AI configuration
+.claude/
 
 # Testing
 .pytest_cache/
@@ -61,4 +68,26 @@ logs/*.log.*
 *.db
 *.sqlite
 
+# Log files
+*.log
+backend.log
+
+# Backup and temporary files
+*.backup*
+*.backup[0-9]
+*.broken
+*.bak
+*.tmp
+
+# Development and maintenance scripts
+cleanup_test_data.sh
+clear_departments.py
+fix_and_restart.sh
+verify_implementation.py
+
+# Scripts directories
+backend/scripts/
+
+# Release artifacts
+release/packages/
 

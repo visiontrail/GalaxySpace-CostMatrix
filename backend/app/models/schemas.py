@@ -6,6 +6,47 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 
 
+class UserBase(BaseModel):
+    """用户基础信息"""
+    username: str
+    is_admin: bool = False
+    created_at: Optional[datetime] = None
+
+
+class UserCreate(BaseModel):
+    """用户创建请求"""
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=6, max_length=128)
+    is_admin: bool = False
+
+
+class UserUpdate(BaseModel):
+    """用户更新请求"""
+    password: Optional[str] = Field(None, min_length=6, max_length=128)
+    is_admin: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class LoginRequest(BaseModel):
+    """登录请求"""
+    username: str
+    password: str
+
+
+class PasswordChangeRequest(BaseModel):
+    """密码修改请求"""
+    current_password: str = Field(..., min_length=6, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
+    confirm_password: str = Field(..., min_length=6, max_length=128)
+
+
+class Token(BaseModel):
+    """访问令牌响应"""
+    access_token: str
+    token_type: str = "bearer"
+    user: UserBase
+
+
 class AnalysisResult(BaseModel):
     """分析结果基础模型"""
     success: bool
@@ -62,6 +103,8 @@ class DepartmentCostSummary(BaseModel):
     hotel_cost: float
     train_cost: float
     person_count: int
+    avg_work_hours: float
+    holiday_avg_work_hours: float = 0
 
 
 class BookingBehaviorAnalysis(BaseModel):
@@ -93,29 +136,30 @@ class DepartmentDetailMetrics(BaseModel):
     """部门详细指标"""
     # 基本信息
     department_name: str
-    department_level: str  # 一级部门/二级部门/三级部门
+    department_level: str
     parent_department: Optional[str] = None
 
     # 考勤相关指标
-    attendance_days_distribution: Dict[str, int]  # 当月考勤天数分布
-    weekend_work_days: int  # 公休日上班天数
-    workday_attendance_days: int  # 工作日出勤天数
-    avg_work_hours: float  # 工作日平均工时
+    attendance_days_distribution: Dict[str, int]
+    weekend_work_days: int
+    workday_attendance_days: int
+    avg_work_hours: float
+    holiday_avg_work_hours: float = 0
 
     # 状态天数
-    travel_days: int  # 出差天数
-    leave_days: int  # 请假天数
+    travel_days: int
+    leave_days: int
 
     # 异常统计
-    anomaly_days: int  # 异常天数
-    late_after_1930_count: int  # 晚上7:30后下班人数
-    weekend_attendance_count: int  # 周末出勤次数
+    anomaly_days: int
+    late_after_1930_count: int
+    weekend_attendance_count: int
 
     # 排行榜
-    travel_ranking: List[EmployeeRanking]  # 出差排行榜
-    anomaly_ranking: List[EmployeeRanking]  # 异常排行榜
-    latest_checkout_ranking: List[EmployeeRanking]  # 最晚下班排行榜
-    longest_hours_ranking: List[EmployeeRanking]  # 最长工时排行榜
+    travel_ranking: List[EmployeeRanking]
+    anomaly_ranking: List[EmployeeRanking]
+    latest_checkout_ranking: List[EmployeeRanking]
+    longest_hours_ranking: List[EmployeeRanking]
 
 
 class DepartmentHierarchy(BaseModel):
@@ -133,6 +177,7 @@ class DepartmentListItem(BaseModel):
     person_count: int
     total_cost: float
     avg_work_hours: float
+    holiday_avg_work_hours: float = 0
 
 
 class Level2DepartmentStats(BaseModel):
@@ -140,6 +185,7 @@ class Level2DepartmentStats(BaseModel):
     name: str
     person_count: int
     avg_work_hours: float
+    holiday_avg_work_hours: float = 0
     workday_attendance_days: int
     weekend_work_days: int
     weekend_attendance_count: int

@@ -1,0 +1,24 @@
+# Backend production Dockerfile for FastAPI
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Base environment
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Dependencies
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+# Application code
+COPY backend/app /app/app
+COPY config /app/config
+
+# Expose port
+EXPOSE 8000
+
+# Production startup (no auto-reload)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

@@ -29,14 +29,13 @@ import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import type { ProjectDetail, ProjectOrderRecord } from '@/types'
 import { getAllProjects, getProjectOrders } from '@/services/api'
-import { useOutletContext } from 'react-router-dom'
-import type { UploadContextValue } from '@/layouts/MainLayout'
+import { useMonthContext } from '@/contexts/MonthContext'
 
 const { Title, Text } = Typography
 
 const Projects = () => {
   const navigate = useNavigate()
-  const { selectedUpload } = useOutletContext<UploadContextValue>()
+  const { selectedMonths } = useMonthContext()
 
   const [projects, setProjects] = useState<ProjectDetail[]>([])
   const [loading, setLoading] = useState(false)
@@ -46,20 +45,23 @@ const Projects = () => {
   const [drawerVisible, setDrawerVisible] = useState(false)
 
   useEffect(() => {
-    if (selectedUpload?.file_path) {
+    if (selectedMonths.length > 0) {
       fetchProjects()
+    } else {
+      setProjects([])
     }
-  }, [selectedUpload?.file_path])
+  }, [selectedMonths])
 
   const fetchProjects = async () => {
-    if (!selectedUpload?.file_path) {
-      message.warning('请先选择文件')
+    if (selectedMonths.length === 0) {
+      message.warning('请先选择月份')
       return
     }
 
     setLoading(true)
     try {
-      const result = await getAllProjects(selectedUpload.file_path)
+      // 调用API时不传file_path，传递months参数从数据库获取数据
+      const result = await getAllProjects('', selectedMonths)
       if (result.success && result.data?.projects) {
         setProjects(result.data.projects)
       } else {
@@ -73,12 +75,17 @@ const Projects = () => {
   }
 
   const handleViewOrders = async (project: ProjectDetail) => {
+    if (selectedMonths.length === 0) {
+      message.warning('请先选择月份')
+      return
+    }
+
     setSelectedProject(project)
     setDrawerVisible(true)
     setOrdersLoading(true)
 
     try {
-      const result = await getProjectOrders(selectedUpload!.file_path, project.code)
+      const result = await getProjectOrders('', project.code, selectedMonths)
       if (result.success && result.data?.orders) {
         setOrders(result.data.orders)
       } else {
@@ -106,6 +113,7 @@ const Projects = () => {
       fixed: 'left',
       width: 120,
       sorter: (a, b) => a.code.localeCompare(b.code),
+      render: (value: string) => value === 'nan' ? '未知编号' : value,
     },
     {
       title: '项目名称',
@@ -114,6 +122,7 @@ const Projects = () => {
       width: 250,
       ellipsis: true,
       sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (value: string) => value === 'nan' ? '未知项目' : value,
     },
     {
       title: '总成本 (元)',
@@ -293,13 +302,10 @@ const Projects = () => {
     },
   ]
 
-  if (!selectedUpload?.file_path) {
+  if (selectedMonths.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <Empty description="请先上传并选择文件" />
-        <Button type="primary" onClick={() => navigate('/upload')}>
-          前往上传
-        </Button>
+        <Empty description="请从左侧选择月份（可多选）查看项目数据" />
       </div>
     )
   }
@@ -314,6 +320,12 @@ const Projects = () => {
           <Title level={2} style={{ margin: 0 }}>
             项目详情
           </Title>
+          <Space align="center" size={[4, 4]} wrap>
+            <Text type="secondary">当前月份:</Text>
+            {selectedMonths.map(month => (
+              <Tag key={month} color="blue">{month}</Tag>
+            ))}
+          </Space>
           <Tag color="purple">共 {projects.length} 个项目</Tag>
         </Space>
         <Button onClick={fetchProjects} loading={loading}>
@@ -328,7 +340,11 @@ const Projects = () => {
               dataSource={projects}
               columns={projectColumns}
               rowKey="code"
-              pagination={false}
+              pagination={{
+                pageSize: 20,
+                showSizeChanger: false,
+                showTotal: (total) => `共 ${total} 个项目`,
+              }}
               scroll={{ x: 1500 }}
               size="middle"
             />
@@ -463,7 +479,7 @@ const Projects = () => {
             {selectedProject.department_list && selectedProject.department_list.length > 0 && (
               <Card size="small" title={<><TeamOutlined /> 涉及部门 ({selectedProject.department_list.length})</>}>
                 <Space wrap>
-                  {selectedProject.department_list.map((dept: string, idx: number) => (
+                  {selectedProject.department_list.map((dept, idx) => (
                     <Tag key={idx} color="purple">
                       {dept}
                     </Tag>
@@ -484,7 +500,7 @@ const Projects = () => {
                     rowKey="id"
                     pagination={{
                       pageSize: 10,
-                      showSizeChanger: true,
+                      showSizeChanger: false,
                       showTotal: (total) => `共 ${total} 条订单记录`,
                     }}
                     scroll={{ x: 1000 }}

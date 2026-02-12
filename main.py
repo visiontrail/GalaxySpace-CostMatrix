@@ -17,7 +17,6 @@ from datetime import datetime
 from data_loader import DataLoader
 from analysis_service import TravelAnalyzer
 from export_service import ExcelExporter
-from ppt_export_service import PPTExporter
 from logger_config import get_logger, RequestLogger, log_exception, log_performance
 
 
@@ -392,7 +391,7 @@ async def export_ppt(request: Request):
         # 4. 创建部门统计表格页
         if dept_stats:
             logger.debug(f"[{request_id}] 创建部门统计表格页，共 {len(dept_stats)} 行")
-            headers = ['部门', '成本(元)', '总工时', '人员数量', '饱和度(%)']
+            headers = ['部门', '成本(元)', '总工时', '涉及成本人员', '饱和度(%)']
             rows = [
                 [
                     d.get('一级部门', ''),
@@ -403,7 +402,7 @@ async def export_ppt(request: Request):
                 ]
                 for d in dept_stats[:20]  # 限制20行
             ]
-            exporter.create_table_slide('部门统计详情', headers, rows)
+            exporter.create_table_slide('部门工时成本概览', headers, rows)
 
         if projects:
             logger.debug(f"[{request_id}] 创建项目成本表格页，共 {len(projects)} 行")

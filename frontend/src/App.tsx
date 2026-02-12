@@ -4,20 +4,33 @@ import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Projects from './pages/Projects'
 import Departments from './pages/Departments'
+import Anomalies from './pages/Anomalies'
+import Users from './pages/Users'
+import Login from './pages/Login'
+import RequireAuth from './components/RequireAuth'
 import './App.css'
 
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<MainLayout />}>
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <MainLayout />
+          </RequireAuth>
+        }
+      >
         <Route index element={<Dashboard />} />
         <Route path="upload" element={<Upload />} />
         <Route path="projects" element={<Projects />} />
         <Route path="departments" element={<Departments />} />
+        <Route path="anomalies" element={<Anomalies />} />
+        <Route path="users" element={<Users />} />
       </Route>
     </Routes>
   )
 }
 
 export default App
-

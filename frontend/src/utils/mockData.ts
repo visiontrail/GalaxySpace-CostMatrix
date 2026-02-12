@@ -32,49 +32,57 @@ export const mockAnalysisResult: AnalysisResult = {
       dept: '研发部',
       cost: 450000,
       avg_hours: 10.2,
-      headcount: 50
+      headcount: 50,
+      holiday_avg_hours: 12.5
     },
     {
       dept: '市场部',
       cost: 280000,
       avg_hours: 9.1,
-      headcount: 25
+      headcount: 25,
+      holiday_avg_hours: 10.8
     },
     {
       dept: '销售部',
       cost: 320000,
       avg_hours: 8.8,
-      headcount: 35
+      headcount: 35,
+      holiday_avg_hours: 9.5
     },
     {
       dept: '行政部',
       cost: 80000,
       avg_hours: 8.5,
-      headcount: 15
+      headcount: 15,
+      holiday_avg_hours: 8.8
     },
     {
       dept: '财务部',
       cost: 60000,
       avg_hours: 8.3,
-      headcount: 10
+      headcount: 10,
+      holiday_avg_hours: 8.5
     },
     {
       dept: '人力资源部',
       cost: 40000,
       avg_hours: 8.4,
-      headcount: 8
+      headcount: 8,
+      holiday_avg_hours: 8.6
     },
     {
       dept: '技术支持部',
       cost: 120000,
       avg_hours: 9.6,
-      headcount: 20
+      headcount: 20,
+      holiday_avg_hours: 10.2
     },
     {
       dept: '运营部',
       cost: 150000,
       avg_hours: 9.2,
-      headcount: 22
+      headcount: 22,
+      holiday_avg_hours: 9.8
     }
   ],
   project_top10: [

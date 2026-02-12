@@ -2,6 +2,26 @@
 
 # CostMatrix 一键启动脚本
 
+REINSTALL_PY=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reinstall-py-deps|-r)
+      REINSTALL_PY=true
+      shift
+      ;;
+    -h|--help)
+      echo "用法: $0 [--reinstall-py-deps|-r]"
+      exit 0
+      ;;
+    *)
+      echo "未知参数: $1"
+      echo "用法: $0 [--reinstall-py-deps|-r]"
+      exit 1
+      ;;
+  esac
+done
+
 echo "🚀 Starting CostMatrix..."
 
 # 检查是否安装了 Python 和 Node.js
@@ -9,6 +29,31 @@ command -v python3 >/dev/null 2>&1 || { echo "❌ Python3 未安装，请先安�
 command -v node >/dev/null 2>&1 || { echo "❌ Node.js 未安装，请先安装 Node.js 16+"; exit 1; }
 
 echo "✅ 环境检查通过"
+
+check_port_conflict() {
+  local port="$1"
+  local service_name="$2"
+  local conflict_output=""
+
+  if command -v ss >/dev/null 2>&1; then
+    conflict_output=$(ss -lntp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" || $4 ~ "\\*:"port"$"')
+  elif command -v lsof >/dev/null 2>&1; then
+    conflict_output=$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null)
+  elif command -v netstat >/dev/null 2>&1; then
+    conflict_output=$(netstat -lntp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" || $4 ~ "\\*:"port"$"')
+  fi
+
+  if [ -n "$conflict_output" ]; then
+    echo "❌ 端口冲突：${service_name} 需要端口 ${port}，但该端口已被占用。"
+    echo "占用详情："
+    echo "$conflict_output"
+    echo "请先释放端口 ${port} 后再重试。"
+    exit 1
+  fi
+}
+
+check_port_conflict 8000 "后端服务"
+check_port_conflict 5173 "前端服务"
 
 # 启动后端
 echo "📦 启动后端服务..."
@@ -24,15 +69,42 @@ fi
 source venv/bin/activate
 
 # 安装依赖
-if [ ! -f "venv/.installed" ]; then
+if [ "$REINSTALL_PY" = true ]; then
+    echo "重新安装 Python 依赖..."
+    pip install --upgrade --force-reinstall -r requirements.txt
+    touch venv/.installed
+elif [ ! -f "venv/.installed" ]; then
     echo "安装 Python 依赖..."
     pip install -r requirements.txt
     touch venv/.installed
 fi
 
+# 兼容旧虚拟环境：如果 requirements 已更新但未重装，补齐关键依赖
+if ! python -c "import pymysql" >/dev/null 2>&1; then
+    echo "检测到缺少 pymysql，正在安装..."
+    pip install "pymysql>=1.1.0"
+fi
+if ! python -c "import cryptography" >/dev/null 2>&1; then
+    echo "检测到缺少 cryptography，正在安装..."
+    pip install "cryptography>=42.0.0"
+fi
+
+echo "🔎 当前数据库配置:"
+python - <<'PY'
+from app.config import settings
+
+if settings.database_url:
+    scheme = settings.database_url.split("://", 1)[0]
+    print(f"  DATABASE_URL scheme: {scheme}")
+elif str(settings.db_type).lower() == "mysql":
+    print(f"  DB_TYPE=mysql ({settings.db_user}@{settings.db_host}:{settings.db_port}/{settings.db_name})")
+else:
+    print("  DB_TYPE=sqlite")
+PY
+
 # 启动后端服务
 echo "🌐 后端服务启动中... (http://localhost:8000)"
-uvicorn app.main:app --reload --port 8000 &
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 cd ..
@@ -49,7 +121,7 @@ fi
 
 # 启动前端服务
 echo "🌐 前端服务启动中... (http://localhost:5173)"
-npm run dev &
+npm run dev -- --host 0.0.0.0 &
 FRONTEND_PID=$!
 
 cd ..
@@ -66,5 +138,3 @@ echo "按 Ctrl+C 停止服务"
 # 等待用户中断
 trap "echo ''; echo '🛑 停止服务...'; kill $BACKEND_PID $FRONTEND_PID; exit" INT
 wait
-
-

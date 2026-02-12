@@ -1,10 +1,13 @@
 """
 应用配置模块
 """
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
-from typing import List
+from pathlib import Path
+from typing import Annotated, List
 import os
+import json
+
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic import Field, field_validator
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -13,12 +16,19 @@ DEFAULT_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8180",
 ]
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_INITIAL_PASSWORD_FILE = BASE_DIR.parent / "config" / "initial_admin_password.txt"
+ENV_FILE_PATHS = (
+    str(BASE_DIR / ".env"),         # backend/.env
+    str(BASE_DIR.parent / ".env"),  # project-root/.env
+)
+
 
 class Settings(BaseSettings):
     """应用配置类"""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE_PATHS,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -29,22 +39,79 @@ class Settings(BaseSettings):
     debug: bool = True
 
     # CORS 配置
-    allowed_origins: List[str] = DEFAULT_ALLOWED_ORIGINS.copy()
+    # Keep raw env value and parse in validator so CSV and JSON array are both supported.
+    allowed_origins: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: DEFAULT_ALLOWED_ORIGINS.copy()
+    )
+
+    # 认证配置
+    secret_key: str = "change-me-in-env"
+    access_token_expire_minutes: int = 24 * 60  # 24 小时
+    jwt_algorithm: str = "HS256"
+    default_admin_username: str = "admin"
+    initial_admin_password_file: str = str(DEFAULT_INITIAL_PASSWORD_FILE)
 
     # 文件上传配置
     upload_dir: str = "./uploads"
     max_upload_size: int = 50  # MB
 
+    # 数据库配置
+    # 优先读取完整连接串 DATABASE_URL，否则根据 DB_* 自动拼接
+    database_url: str = ""
+    db_type: str = "sqlite"  # sqlite / mysql
+    db_host: str = "127.0.0.1"
+    db_port: int = 3306
+    db_name: str = "costmatrix"
+    db_user: str = "root"
+    db_password: str = ""
+    db_charset: str = "utf8mb4"
+
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def split_origins(cls, value):
         """
-        支持通过环境变量 ALLOWED_ORIGINS 以逗号分隔配置，保持默认值不变。
+        支持通过环境变量 ALLOWED_ORIGINS 配置：
+        1) 逗号分隔字符串: a,b,c
+        2) JSON 数组字符串: ["a","b","c"]
         """
+        if value is None:
+            return DEFAULT_ALLOWED_ORIGINS.copy()
+
         if isinstance(value, str):
-            origins = [origin.strip() for origin in value.split(",") if origin.strip()]
-            return origins or DEFAULT_ALLOWED_ORIGINS
+            stripped = value.strip()
+            if not stripped:
+                return DEFAULT_ALLOWED_ORIGINS.copy()
+
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError:
+                    parsed = None
+                if isinstance(parsed, list):
+                    origins = [str(origin).strip() for origin in parsed if str(origin).strip()]
+                    return origins or DEFAULT_ALLOWED_ORIGINS.copy()
+
+            origins = [origin.strip() for origin in stripped.split(",") if origin.strip()]
+            return origins or DEFAULT_ALLOWED_ORIGINS.copy()
+
+        if isinstance(value, (list, tuple, set)):
+            origins = [str(origin).strip() for origin in value if str(origin).strip()]
+            return origins or DEFAULT_ALLOWED_ORIGINS.copy()
+
         return value
+
+    @field_validator("db_type", mode="before")
+    @classmethod
+    def normalize_db_type(cls, value):
+        """Normalize DB type and keep a safe default."""
+        if value is None:
+            return "sqlite"
+        db_type = str(value).strip().lower()
+        if not db_type:
+            return "sqlite"
+        if db_type not in {"sqlite", "mysql"}:
+            raise ValueError("DB_TYPE 仅支持 sqlite 或 mysql")
+        return db_type
 
 
 settings = Settings()

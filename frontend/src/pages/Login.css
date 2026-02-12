@@ -1,0 +1,56 @@
+.login-page {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100vw;
+  height: 100vh;
+  padding: clamp(16px, 4vw, 32px);
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at 20% 20%, #0ea5e9 0, #0b1224 30%),
+    radial-gradient(circle at 80% 0%, #0f172a 0, #0b1224 35%),
+    #0b1224;
+  overflow: hidden;
+}
+
+.login-card {
+  width: min(440px, 100%);
+  max-height: 92vh;
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(6px);
+}
+
+.login-card .ant-card-body {
+  padding: clamp(24px, 4vw, 32px) clamp(20px, 4vw, 32px);
+}
+
+.login-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.login-footnote {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 8px;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    max-height: 96vh;
+  }
+
+  .login-card h3.ant-typography {
+    font-size: 20px;
+  }
+
+  .login-footnote {
+    font-size: 12px;
+  }
+}
