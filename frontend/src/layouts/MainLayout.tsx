@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout, Menu, Typography, Button, Space, Empty, Tag, Modal, Form, Input, message, Checkbox } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DeleteOutlined, TeamOutlined, UserOutlined, LogoutOutlined } from '@ant-design/icons'
+import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DeleteOutlined, TeamOutlined, UserOutlined, LogoutOutlined, LineChartOutlined } from '@ant-design/icons'
 import type { MonthContextValue } from '@/types'
 import { MonthProvider, useMonthContext } from '@/contexts/MonthContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -27,6 +27,11 @@ const MainLayout = () => {
         key: '/upload',
         icon: <UploadOutlined />,
         label: '文件上传',
+      },
+      {
+        key: '/trends',
+        icon: <LineChartOutlined />,
+        label: '趋势分析',
       },
     ]
 
