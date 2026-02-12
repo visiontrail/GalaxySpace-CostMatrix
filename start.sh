@@ -30,6 +30,31 @@ command -v node >/dev/null 2>&1 || { echo "❌ Node.js 未安装，请先安装 
 
 echo "✅ 环境检查通过"
 
+check_port_conflict() {
+  local port="$1"
+  local service_name="$2"
+  local conflict_output=""
+
+  if command -v ss >/dev/null 2>&1; then
+    conflict_output=$(ss -lntp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" || $4 ~ "\\*:"port"$"')
+  elif command -v lsof >/dev/null 2>&1; then
+    conflict_output=$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null)
+  elif command -v netstat >/dev/null 2>&1; then
+    conflict_output=$(netstat -lntp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" || $4 ~ "\\*:"port"$"')
+  fi
+
+  if [ -n "$conflict_output" ]; then
+    echo "❌ 端口冲突：${service_name} 需要端口 ${port}，但该端口已被占用。"
+    echo "占用详情："
+    echo "$conflict_output"
+    echo "请先释放端口 ${port} 后再重试。"
+    exit 1
+  fi
+}
+
+check_port_conflict 8000 "后端服务"
+check_port_conflict 5173 "前端服务"
+
 # 启动后端
 echo "📦 启动后端服务..."
 cd backend
@@ -79,7 +104,7 @@ PY
 
 # 启动后端服务
 echo "🌐 后端服务启动中... (http://localhost:8000)"
-uvicorn app.main:app --reload --port 8000 &
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 cd ..
@@ -96,7 +121,7 @@ fi
 
 # 启动前端服务
 echo "🌐 前端服务启动中... (http://localhost:5173)"
-npm run dev &
+npm run dev -- --host 0.0.0.0 &
 FRONTEND_PID=$!
 
 cd ..
