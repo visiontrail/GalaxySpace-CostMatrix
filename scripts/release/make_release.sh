@@ -48,6 +48,16 @@ if [ "${SKIP_SMOKE_TEST}" != "1" ]; then
     -e ALLOWED_ORIGINS='["http://localhost:8180","http://localhost:5173"]' \
     "${BACKEND_IMAGE}:${VERSION}" \
     python -c "import app.main;print('ok-json')"
+  docker run --rm \
+    -e DB_TYPE='mysql' \
+    -e DB_HOST='127.0.0.1' \
+    -e DB_PORT='3306' \
+    -e DB_NAME='costmatrix' \
+    -e DB_USER='root' \
+    -e DB_PASSWORD='change_me' \
+    -e DB_CHARSET='utf8mb4' \
+    "${BACKEND_IMAGE}:${VERSION}" \
+    python -c "from app.db.database import DB_BACKEND;assert DB_BACKEND=='mysql';print('ok-mysql-config')"
 
   echo "3.1) Run backend runtime smoke test (multi-worker startup)"
   SMOKE_CONTAINER="costmatrix-backend-smoke-${VERSION//[^a-zA-Z0-9_.-]/-}"

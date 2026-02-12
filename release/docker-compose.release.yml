@@ -12,6 +12,14 @@ services:
       - INITIAL_ADMIN_PASSWORD_FILE=${INITIAL_ADMIN_PASSWORD_FILE:-/app/config/initial_admin_password.txt}
       - UPLOAD_DIR=${UPLOAD_DIR:-/app/uploads}
       - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-200}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DB_TYPE=${DB_TYPE:-mysql}
+      - DB_HOST=${DB_HOST:-127.0.0.1}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_NAME=${DB_NAME:-costmatrix}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_CHARSET=${DB_CHARSET:-utf8mb4}
     volumes:
       - ./data/uploads:/app/uploads
       - ./data/data:/app/data

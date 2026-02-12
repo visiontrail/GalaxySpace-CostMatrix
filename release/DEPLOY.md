@@ -41,7 +41,7 @@ costmatrix-<version>/
    ```bash
    cd /opt/costmatrix-20260209
    cp .env.example .env
-   # 按需修改端口、SECRET_KEY、ALLOWED_ORIGINS 等（推荐 JSON 数组格式）
+   # 按需修改 DB_HOST/DB_USER/DB_PASSWORD、端口、SECRET_KEY、ALLOWED_ORIGINS 等
    ```
 3) 启动（离线自动加载镜像）：
    ```bash
@@ -77,10 +77,13 @@ costmatrix-<version>/
 - `SECRET_KEY`：JWT 加密秘钥，必须改为公司随机值
 - `INITIAL_ADMIN_PASSWORD_FILE`：初始管理员密码文件路径，默认 `config/initial_admin_password.txt`
 - `UPLOAD_DIR`：上传目录（默认 `/app/uploads`，映射到宿主 `data/uploads`）
+- `DATABASE_URL`：完整连接串（优先级最高），示例：`mysql+pymysql://user:password@db.example.com:3306/costmatrix?charset=utf8mb4`
+- `DB_TYPE`：默认 `mysql`；如需 SQLite 可改为 `sqlite`
+- `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_CHARSET`：当 `DATABASE_URL` 为空时生效
 
 ## 8. 数据持久化
 - `data/uploads`：上传文件与缓存
-- `data/data`：内置 SQLite 数据库
+- `data/data`：仅在使用 SQLite 时保存数据库文件（默认 MySQL 模式下可忽略）
 - `data/logs`：后端日志
 
 ## 9. 约束与注意事项
@@ -92,3 +95,4 @@ costmatrix-<version>/
 - 镜像无法加载：确认 `images/*.tar` 存在且账号有 Docker 权限
 - 端口占用：调整 `.env` 中端口后重新执行 `./scripts/up.sh`
 - 后端健康检查失败：查看 `data/logs` 或 `./scripts/logs.sh backend`
+- MySQL 连接失败：确认 `.env` 中 `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME` 可从容器网络访问
