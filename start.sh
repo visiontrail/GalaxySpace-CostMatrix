@@ -54,6 +54,29 @@ elif [ ! -f "venv/.installed" ]; then
     touch venv/.installed
 fi
 
+# 兼容旧虚拟环境：如果 requirements 已更新但未重装，补齐关键依赖
+if ! python -c "import pymysql" >/dev/null 2>&1; then
+    echo "检测到缺少 pymysql，正在安装..."
+    pip install "pymysql>=1.1.0"
+fi
+if ! python -c "import cryptography" >/dev/null 2>&1; then
+    echo "检测到缺少 cryptography，正在安装..."
+    pip install "cryptography>=42.0.0"
+fi
+
+echo "🔎 当前数据库配置:"
+python - <<'PY'
+from app.config import settings
+
+if settings.database_url:
+    scheme = settings.database_url.split("://", 1)[0]
+    print(f"  DATABASE_URL scheme: {scheme}")
+elif str(settings.db_type).lower() == "mysql":
+    print(f"  DB_TYPE=mysql ({settings.db_user}@{settings.db_host}:{settings.db_port}/{settings.db_name})")
+else:
+    print("  DB_TYPE=sqlite")
+PY
+
 # 启动后端服务
 echo "🌐 后端服务启动中... (http://localhost:8000)"
 uvicorn app.main:app --reload --port 8000 &
@@ -90,4 +113,3 @@ echo "按 Ctrl+C 停止服务"
 # 等待用户中断
 trap "echo ''; echo '🛑 停止服务...'; kill $BACKEND_PID $FRONTEND_PID; exit" INT
 wait
-

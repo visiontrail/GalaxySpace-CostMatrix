@@ -18,13 +18,17 @@ DEFAULT_ALLOWED_ORIGINS = [
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_INITIAL_PASSWORD_FILE = BASE_DIR.parent / "config" / "initial_admin_password.txt"
+ENV_FILE_PATHS = (
+    str(BASE_DIR / ".env"),         # backend/.env
+    str(BASE_DIR.parent / ".env"),  # project-root/.env
+)
 
 
 class Settings(BaseSettings):
     """应用配置类"""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE_PATHS,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
