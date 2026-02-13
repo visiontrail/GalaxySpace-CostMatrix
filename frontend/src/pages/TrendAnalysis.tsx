@@ -212,7 +212,9 @@ const TrendAnalysis = () => {
   const previousMonthDisplay = previousPoint ? formatMonthDisplay(previousPoint.month) : ''
 
   const totalCostMom = latestPoint ? calcMom(latestPoint.totalCost, previousPoint?.totalCost) : undefined
-  const anomalyMom = latestPoint ? calcMom(latestPoint.anomalyCount, previousPoint?.anomalyCount) : undefined
+  const holidayAvgHoursMom = latestPoint
+    ? calcMom(latestPoint.holidayAvgWorkHours, previousPoint?.holidayAvgWorkHours)
+    : undefined
   const avgHoursMom = latestPoint ? calcMom(latestPoint.avgWorkHours, previousPoint?.avgWorkHours) : undefined
   const projectMom = latestPoint ? calcMom(latestPoint.projectCount, previousPoint?.projectCount) : undefined
 
@@ -430,9 +432,9 @@ const TrendAnalysis = () => {
             </Col>
             <Col xs={24} md={12} lg={6}>
               <Card>
-                <Statistic title={`最新月异常记录${latestMonthDisplay ? `（${latestMonthDisplay}）` : ''}`} value={latestPoint?.anomalyCount || 0} />
-                <Text type={anomalyMom !== undefined && anomalyMom >= 0 ? 'danger' : 'success'}>
-                  环比（{latestMonthDisplay || '--'} vs {previousMonthDisplay || '--'}）：{anomalyMom !== undefined ? formatPercent(anomalyMom) : '--'}
+                <Statistic title={`最新月项目数量${latestMonthDisplay ? `（${latestMonthDisplay}）` : ''}`} value={latestPoint?.projectCount || 0} />
+                <Text type={projectMom !== undefined && projectMom >= 0 ? 'danger' : 'success'}>
+                  环比（{latestMonthDisplay || '--'} vs {previousMonthDisplay || '--'}）：{projectMom !== undefined ? formatPercent(projectMom) : '--'}
                 </Text>
               </Card>
             </Col>
@@ -451,9 +453,14 @@ const TrendAnalysis = () => {
             </Col>
             <Col xs={24} md={12} lg={6}>
               <Card>
-                <Statistic title={`最新月项目数量${latestMonthDisplay ? `（${latestMonthDisplay}）` : ''}`} value={latestPoint?.projectCount || 0} />
-                <Text type={projectMom !== undefined && projectMom >= 0 ? 'danger' : 'success'}>
-                  环比（{latestMonthDisplay || '--'} vs {previousMonthDisplay || '--'}）：{projectMom !== undefined ? formatPercent(projectMom) : '--'}
+                <Statistic
+                  title={`最新月节假日平均工时${latestMonthDisplay ? `（${latestMonthDisplay}）` : ''}`}
+                  value={latestPoint?.holidayAvgWorkHours || 0}
+                  precision={2}
+                  suffix="h"
+                />
+                <Text type={holidayAvgHoursMom !== undefined && holidayAvgHoursMom >= 0 ? 'danger' : 'success'}>
+                  环比（{latestMonthDisplay || '--'} vs {previousMonthDisplay || '--'}）：{holidayAvgHoursMom !== undefined ? formatPercent(holidayAvgHoursMom) : '--'}
                 </Text>
               </Card>
             </Col>
@@ -478,7 +485,11 @@ const TrendAnalysis = () => {
               {selectedProjectCodes.length === 0 ? (
                 <Alert type="info" showIcon message="请选择至少一个项目以查看走势" />
               ) : (
-                <ReactECharts option={projectCostByProjectOption} style={{ height: 360 }} />
+                <ReactECharts
+                  option={projectCostByProjectOption}
+                  replaceMerge={['series']}
+                  style={{ height: 360 }}
+                />
               )}
             </Space>
           </Card>

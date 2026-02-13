@@ -24,15 +24,16 @@ const MainLayout = () => {
         label: '数据看板',
       },
       {
-        key: '/upload',
-        icon: <UploadOutlined />,
-        label: '文件上传',
-      },
-      {
         key: '/trends',
         icon: <LineChartOutlined />,
         label: '趋势分析',
       },
+      {
+        key: '/upload',
+        icon: <UploadOutlined />,
+        label: '文件上传',
+      },
+
     ]
 
     if (user?.is_admin) {
