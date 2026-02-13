@@ -4,7 +4,7 @@ import json
 from datetime import datetime, time, timedelta
 from typing import List, Optional, Tuple
 import pandas as pd
-from sqlalchemy import func, and_, or_, select, text, alias, case, bindparam
+from sqlalchemy import Integer, cast, func, and_, or_, select, text, alias, case, bindparam
 from sqlalchemy.orm import Session, aliased
 from app.db.models import (
     Upload, Department, Project, Employee,
@@ -55,6 +55,22 @@ def _month_in_filter(db: Session, column, months: List[str]):
 def _month_equals_filter(db: Session, column, month: str):
     """Build month equality filter compatible with sqlite/mysql."""
     return _month_expr(db, column) == month
+
+
+def _workday_filter(db: Session, column):
+    """Build weekday filter compatible with sqlite/mysql/postgresql."""
+    bind = db.get_bind()
+    dialect_name = (bind.dialect.name if bind else "").lower()
+
+    if dialect_name.startswith("mysql"):
+        # MySQL WEEKDAY(): Monday=0 ... Sunday=6
+        return func.weekday(column).in_([0, 1, 2, 3, 4])
+    if dialect_name in ("postgresql", "postgres"):
+        # PostgreSQL EXTRACT(DOW): Sunday=0 ... Saturday=6
+        return func.extract('dow', column).in_([1, 2, 3, 4, 5])
+
+    # SQLite strftime('%w'): Sunday=0 ... Saturday=6 (string result)
+    return cast(func.strftime("%w", column), Integer).in_([1, 2, 3, 4, 5])
 
 
 def _unknown_status_condition(status_column):
@@ -2116,9 +2132,7 @@ def get_department_details_from_db(
         return None
 
     # Get workday/weekend statistics
-    workday_where = list(where_clauses) + [
-        func.extract('dow', AttendanceRecord.date).in_([0, 1, 2, 3, 4])  # Monday=0 in SQLite
-    ]
+    workday_where = list(where_clauses) + [_workday_filter(db, AttendanceRecord.date)]
 
     workday_attendance = db.query(func.count(AttendanceRecord.id)).select_from(
         AttendanceRecord
