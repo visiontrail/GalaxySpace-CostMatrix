@@ -1,5 +1,7 @@
 # CostMatrix - 企业差旅分析平台（后端 API）
 
+> Docker 本地启停统一使用 `scripts/docker-start.sh`、`scripts/docker-stop.sh`；镜像发布使用 `scripts/docker-publish.sh`。已运行生产环境的升级必须遵循 `release/DEPLOY.md` 的固定目录原位升级流程。
+
 ## 📝 项目简介
 
 CostMatrix 是一个基于 FastAPI + Pandas + OpenPyXL 的企业差旅分析平台后端服务。

@@ -32,14 +32,15 @@ costmatrix-<version>/
     ├── down.sh
     ├── status.sh
     ├── logs.sh
-    └── load-images.sh
+    ├── load-images.sh
+    └── upgrade-in-place.sh
 ```
 
-## 4. 目标机首次部署 / 升级
-1) 上传并解压完整目录，例如 `/opt/costmatrix-20260209`。
+## 4. 目标机首次部署
+1) 上传并解压完整目录，并将首次部署目录固定下来，例如 `/opt/costmatrix`。
 2) 准备 `.env`：
    ```bash
-   cd /opt/costmatrix-20260209
+   cd /opt/costmatrix
    cp .env.example .env
    # 按需修改 DB_HOST/DB_USER/DB_PASSWORD、端口、SECRET_KEY、ALLOWED_ORIGINS 等
    ```
@@ -53,21 +54,41 @@ costmatrix-<version>/
    # 访问 http://<server-ip>:8180
    ```
 
-> 升级时直接在新版本目录重复上述步骤，数据目录会复用。
+> `data/`、`config/` 和 `.env` 都通过相对路径使用。不要把新版本直接启动在另一个目录，否则会切换到另一套上传文件、SQLite 数据和配置。
 
-## 5. 回滚
-- 保留旧版本发布目录（含 `images/*.tar`），回滚时执行：
+## 5. 已运行生产环境的原位升级
+1) 先备份外部 MySQL；如使用 SQLite，还要备份固定部署目录中的 `data/`。同时备份 `.env` 和 `config/`。
+2) 将新发布包解压到临时目录，例如 `/opt/releases/costmatrix-20260727`，不要直接在临时目录启动。
+3) 从新发布包执行原位升级：
+   ```bash
+   cd /opt/releases/costmatrix-20260727
+   ./scripts/upgrade-in-place.sh /opt/costmatrix
+   ```
+4) 脚本只替换 Compose 与运维脚本、更新三个镜像字段，并保留目标目录现有的 `.env` 其他配置、`config/` 和 `data/`。新容器全部健康后才判定成功；失败会恢复旧 Compose 和旧镜像字段并尝试拉起旧容器。
+5) 升级后检查：
+   ```bash
+   cd /opt/costmatrix
+   ./scripts/status.sh
+   curl -fsS http://127.0.0.1:8000/api/health
+   ```
+
+生产升级不得使用 `docker compose down -v`，也不得删除固定部署目录中的 `data/`。
+
+## 6. 回滚
+- 原位升级会把旧 `.env`、Compose 和脚本备份到固定部署目录的 `.upgrade-backups/<timestamp>/`。
+- 如需人工回滚，恢复旧 `.env` 与 `docker-compose.yml` 后执行：
   ```bash
-  cd /opt/costmatrix-<old_version>
-  ./scripts/up.sh
+  cd /opt/costmatrix
+  docker compose -p costmatrix -f docker-compose.yml up -d
   ```
+- 回滚前必须确认旧镜像仍在本机；不要在升级验证完成前清理旧镜像。
 
-## 6. 常用操作
+## 7. 常用操作
 - 停止服务：`./scripts/down.sh`
 - 查看日志：`./scripts/logs.sh` 或 `./scripts/logs.sh backend`
 - 查看状态：`./scripts/status.sh`
 
-## 7. 参数说明（`.env`）
+## 8. 参数说明（`.env`）
 - `IMAGE_TAG`：镜像版本（与发布包一致），不建议修改
 - `BACKEND_IMAGE` / `FRONTEND_IMAGE`：镜像名称
 - `BACKEND_PORT` / `FRONTEND_PORT`：宿主暴露端口
@@ -81,17 +102,27 @@ costmatrix-<version>/
 - `DB_TYPE`：默认 `mysql`；如需 SQLite 可改为 `sqlite`
 - `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_CHARSET`：当 `DATABASE_URL` 为空时生效
 
-## 8. 数据持久化
+## 9. 数据持久化
 - `data/uploads`：上传文件与缓存
 - `data/data`：仅在使用 SQLite 时保存数据库文件（默认 MySQL 模式下可忽略）
 - `data/logs`：后端日志
 
-## 9. 约束与注意事项
+## 10. DockerHub 镜像发布
+联网环境可按 RavenAIService 的同类流程发布镜像：
+
+```bash
+./scripts/docker-publish.sh <dockerhub_namespace> <tag>
+```
+
+现有生产 Compose 的镜像契约保持不变。如使用仓库镜像，将生产 `.env` 中的 `BACKEND_IMAGE`、`FRONTEND_IMAGE` 指向对应 namespace，并使用不可变版本号作为 `IMAGE_TAG`；生产升级不要直接使用 `latest`。
+
+## 11. 约束与注意事项
 - 生产部署不要使用 `scripts/docker/deploy.sh`（该脚本会 `build --no-cache`，属于开发部署流程）
 - 生产 compose 必须使用 `image:`，不能依赖目标机 `build`
 - 镜像导出方式使用 `docker save`，但它不会包含 volumes、`.env`、运行中的容器状态
+- 当前应用启动只执行 SQLAlchemy `create_all`，不会修改已存在列；未来如果模型字段变化，必须先提供可回滚的显式数据库迁移再升级
 
-## 10. 故障排查
+## 12. 故障排查
 - 镜像无法加载：确认 `images/*.tar` 存在且账号有 Docker 权限
 - 端口占用：调整 `.env` 中端口后重新执行 `./scripts/up.sh`
 - 后端健康检查失败：查看 `data/logs` 或 `./scripts/logs.sh backend`

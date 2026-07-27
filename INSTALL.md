@@ -160,7 +160,13 @@ npm run dev -- --port 5174
 
 ## 生产环境部署
 
-生产环境部署建议使用 Docker Compose，请参考项目根目录的 `docker-compose.yml`。
+本地 Docker 环境：
+
+```bash
+./scripts/docker-start.sh
+```
+
+生产环境不要直接使用根目录的本地编排。请使用 `scripts/release/make_release.sh` 生成只含 `image:` 的离线发布包，并严格按照 `release/DEPLOY.md` 在固定部署目录中原位升级，以保留现有 `.env`、`config/` 和 `data/`。
 
 ## 许可证
 
