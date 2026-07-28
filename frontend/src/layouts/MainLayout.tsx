@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout, Menu, Typography, Button, Space, Empty, Tag, Modal, Form, Input, message, Checkbox } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DeleteOutlined, TeamOutlined, UserOutlined, LogoutOutlined } from '@ant-design/icons'
+import { DashboardOutlined, UploadOutlined, RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DeleteOutlined, TeamOutlined, UserOutlined, LogoutOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons'
 import type { MonthContextValue } from '@/types'
 import { MonthProvider, useMonthContext } from '@/contexts/MonthContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -24,6 +24,11 @@ const MainLayout = () => {
         label: '数据看板',
       },
       {
+        key: '/ai-agent',
+        icon: <RobotOutlined />,
+        label: 'AI Agent',
+      },
+      {
         key: '/upload',
         icon: <UploadOutlined />,
         label: '文件上传',
@@ -31,6 +36,11 @@ const MainLayout = () => {
     ]
 
     if (user?.is_admin) {
+      items.splice(2, 0, {
+        key: '/settings',
+        icon: <SettingOutlined />,
+        label: '设置',
+      })
       items.push({
         key: '/users',
         icon: <TeamOutlined />,
@@ -101,6 +111,8 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
   const [pwdModalOpen, setPwdModalOpen] = useState(false)
   const [changingPwd, setChangingPwd] = useState(false)
   const [form] = Form.useForm()
+  const isAgentPage = location.pathname === '/ai-agent'
+  const showMonthSidebar = !isAgentPage && location.pathname !== '/settings'
 
   useEffect(() => {
     refreshMonths()
@@ -187,7 +199,7 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
+      {showMonthSidebar && <Sider
         theme="light"
         collapsible
         collapsed={sidebarCollapsed}
@@ -312,21 +324,23 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
             )}
           </div>
         </div>
-      </Sider>
-      <Layout style={{ marginLeft: sidebarCollapsed ? 0 : 320, transition: 'margin-left 0.2s' }}>
+      </Sider>}
+      <Layout style={{ marginLeft: showMonthSidebar && !sidebarCollapsed ? 320 : 0, transition: 'margin-left 0.2s' }}>
         <Header style={{
           display: 'flex',
           alignItems: 'center',
           background: '#001529',
           padding: '0 24px'
         }}>
-          <Button
-            type="text"
-            icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={toggleSidebar}
-            style={{ color: 'white', marginRight: 12 }}
-            aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
-          />
+          {showMonthSidebar && (
+            <Button
+              type="text"
+              icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={toggleSidebar}
+              style={{ color: 'white', marginRight: 12 }}
+              aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+            />
+          )}
           <div style={{ display: 'flex', alignItems: 'center', marginRight: 40 }}>
             <RocketOutlined style={{ fontSize: 28, color: '#1890ff', marginRight: 12 }} />
             <Title level={3} style={{ color: 'white', margin: 0 }}>
@@ -361,12 +375,18 @@ const MainLayoutContent: React.FC<MainLayoutContentProps> = ({
             </Button>
           </Space>
         </Header>
-        <Content style={{ padding: '24px', overflow: 'auto' }}>
+        <Content style={{
+          padding: isAgentPage ? 0 : '24px',
+          overflow: isAgentPage ? 'hidden' : 'auto',
+          minHeight: isAgentPage ? 'calc(100vh - 64px)' : undefined,
+        }}>
           <Outlet context={contextValue} />
         </Content>
-        <Footer style={{ textAlign: 'center', background: '#f0f2f5' }}>
-          CostMatrix © 2026 | GalaxySpace AI Team
-        </Footer>
+        {!isAgentPage && (
+          <Footer style={{ textAlign: 'center', background: '#f0f2f5' }}>
+            CostMatrix © 2026 | GalaxySpace AI Team
+          </Footer>
+        )}
       </Layout>
       <Modal
         title="修改管理员密码"

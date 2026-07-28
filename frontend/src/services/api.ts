@@ -13,17 +13,24 @@ import type {
   CreateUserPayload,
   ChangePasswordPayload,
   UpdateUserPayload,
+  AgentConversation,
+  AgentConversationMessages,
+  AgentStreamEvent,
+  AISettings,
+  AISettingsUpdate,
+  AIConnectionTestResult,
 } from '@/types'
 
 // API 基础地址
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
  
-type DataAxiosInstance = Omit<AxiosInstance, 'request' | 'get' | 'delete' | 'post' | 'put'> & {
+type DataAxiosInstance = Omit<AxiosInstance, 'request' | 'get' | 'delete' | 'post' | 'put' | 'patch'> & {
   request<T = any>(config: any): Promise<T>
   get<T = any>(url: string, config?: any): Promise<T>
   delete<T = any>(url: string, config?: any): Promise<T>
   post<T = any>(url: string, data?: any, config?: any): Promise<T>
   put<T = any>(url: string, data?: any, config?: any): Promise<T>
+  patch<T = any>(url: string, data?: any, config?: any): Promise<T>
 }
 
 // 创建 axios 实例
@@ -289,6 +296,109 @@ export const deleteUser = async (username: string): Promise<ApiResponse> => {
 
 export const changePassword = async (payload: ChangePasswordPayload): Promise<ApiResponse> => {
   return apiClient.post<ApiResponse>('/change-password', payload)
+}
+
+// ============ Claude Agent SDK ============
+export const listAgentConversations = async (): Promise<AgentConversation[]> => {
+  return apiClient.get<AgentConversation[]>('/agent/conversations')
+}
+
+export const createAgentConversation = async (
+  title = '新对话'
+): Promise<AgentConversation> => {
+  return apiClient.post<AgentConversation>('/agent/conversations', { title })
+}
+
+export const getAgentConversationMessages = async (
+  conversationId: string
+): Promise<AgentConversationMessages> => {
+  return apiClient.get<AgentConversationMessages>(
+    `/agent/conversations/${encodeURIComponent(conversationId)}/messages`
+  )
+}
+
+export const updateAgentConversation = async (
+  conversationId: string,
+  title: string
+): Promise<AgentConversation> => {
+  return apiClient.patch<AgentConversation>(
+    `/agent/conversations/${encodeURIComponent(conversationId)}`,
+    { title }
+  )
+}
+
+export const deleteAgentConversation = async (
+  conversationId: string
+): Promise<ApiResponse> => {
+  return apiClient.delete<ApiResponse>(
+    `/agent/conversations/${encodeURIComponent(conversationId)}`
+  )
+}
+
+export const streamAgentChat = async (
+  payload: { message: string; conversation_id?: string },
+  onEvent: (event: AgentStreamEvent) => void,
+  signal?: AbortSignal
+): Promise<void> => {
+  const token = localStorage.getItem('cm_auth_token')
+  const response = await fetch(`${API_BASE_URL}/agent/chat/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+    signal,
+  })
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null)
+    throw new Error(errorPayload?.detail || `请求失败 (${response.status})`)
+  }
+  if (!response.body) {
+    throw new Error('浏览器不支持流式响应')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+    const blocks = buffer.split(/\r?\n\r?\n/)
+    buffer = blocks.pop() || ''
+    blocks.forEach((block) => {
+      const data = block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n')
+      if (data) {
+        onEvent(JSON.parse(data) as AgentStreamEvent)
+      }
+    })
+    if (done) break
+  }
+}
+
+export const getAISettings = async (): Promise<AISettings> => {
+  return apiClient.get<AISettings>('/ai-settings')
+}
+
+export const updateAISettings = async (
+  payload: AISettingsUpdate
+): Promise<AISettings> => {
+  return apiClient.put<AISettings>('/ai-settings', payload)
+}
+
+export const resetAISettings = async (): Promise<AISettings> => {
+  return apiClient.delete<AISettings>('/ai-settings')
+}
+
+export const testAISettings = async (
+  payload: Pick<AISettingsUpdate, 'provider' | 'api_key' | 'base_url' | 'model'>
+): Promise<AIConnectionTestResult> => {
+  return apiClient.post<AIConnectionTestResult>('/ai-settings/test', payload)
 }
 
 /**

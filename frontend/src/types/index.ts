@@ -34,6 +34,106 @@ export interface ChangePasswordPayload {
   confirm_password: string
 }
 
+// ============ Claude Agent SDK ============
+export interface AgentChartSpec {
+  chart_type: string
+  title: string
+  subtitle?: string | null
+  echarts_option: Record<string, unknown>
+}
+
+export interface AgentToolTrace {
+  tool: string
+  arguments?: Record<string, unknown>
+  duration_ms?: number
+  result?: Record<string, unknown> | null
+  error?: string | null
+}
+
+export interface AgentConversation {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  charts: AgentChartSpec[]
+  tool_trace: AgentToolTrace[]
+  created_at: string
+}
+
+export interface AgentConversationMessages {
+  conversation: AgentConversation
+  messages: AgentMessage[]
+}
+
+export interface AISettings {
+  provider:
+    | 'anthropic'
+    | 'deepseek'
+    | 'aliyun_beijing'
+    | 'aliyun_workspace'
+    | 'aliyun_singapore'
+    | 'aliyun_token_plan'
+    | 'aliyun_coding_plan'
+    | 'zhipu'
+    | 'kimi'
+    | 'minimax'
+    | 'stepfun'
+    | 'stepfun_plan'
+    | 'xiaomi'
+    | 'tencent'
+    | 'custom'
+  base_url: string
+  model: string
+  max_turns: number
+  request_timeout_seconds: number
+  max_result_rows: number
+  system_prompt: string
+  api_key_set: boolean
+  sources: Record<string, 'database' | 'environment' | 'unset'>
+  updated_at?: string | null
+}
+
+export interface AISettingsUpdate {
+  provider?: string
+  api_key?: string
+  base_url?: string
+  model?: string
+  max_turns?: number
+  request_timeout_seconds?: number
+  max_result_rows?: number
+  system_prompt?: string
+}
+
+export interface AIConnectionTestResult {
+  success: boolean
+  message: string
+  latency_ms: number
+  endpoint: string
+}
+
+export type AgentStreamEvent =
+  | { event: 'conversation'; conversation_id: string; title: string; agent: string }
+  | { event: 'status'; phase: string; message: string }
+  | { event: 'tool_use'; tool: string; arguments?: Record<string, unknown> }
+  | { event: 'answer_delta'; delta: string }
+  | { event: 'chart'; chart: AgentChartSpec }
+  | {
+      event: 'final'
+      answer: string
+      charts: AgentChartSpec[]
+      tool_trace: AgentToolTrace[]
+      model: string
+      streamed: boolean
+      interrupted?: boolean
+    }
+  | { event: 'error'; message: string }
+
 // ============ 汇总统计 ============
 export interface Summary {
   total_cost: number        // 总成本

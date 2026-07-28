@@ -54,6 +54,7 @@ tmp/
 *.xlsx
 *.xls
 !sample_data.xlsx
+/testdata/
 
 # Logs (保留目录结构，但忽略日志文件)
 logs/*.log
@@ -67,6 +68,7 @@ logs/*.log.*
 # FastAPI
 *.db
 *.sqlite
+data/uploads/upload_records.json
 
 # Log files
 *.log
@@ -90,4 +92,3 @@ backend/scripts/
 
 # Release artifacts
 release/packages/
-

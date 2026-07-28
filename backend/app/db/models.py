@@ -1,7 +1,7 @@
 """SQLAlchemy database models for CostMatrix using star schema design."""
 from datetime import datetime
 from sqlalchemy import (
-    String, Integer, Numeric, DateTime, ForeignKey, Boolean,
+    String, Integer, Numeric, DateTime, ForeignKey, Boolean, Text,
     Index, CheckConstraint, func
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -179,4 +179,72 @@ class Anomaly(Base):
     __table_args__ = (
         Index("idx_anomalies_upload", "upload_id"),
         Index("idx_anomalies_date", "date", "employee_id"),
+    )
+
+
+class AISettings(Base):
+    """数据库中的 Claude Agent SDK 运行时设置（单例记录）。"""
+
+    __tablename__ = "ai_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    provider: Mapped[str] = mapped_column(String(20), nullable=True)
+    encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=True)
+    base_url: Mapped[str] = mapped_column(String(500), nullable=True)
+    model: Mapped[str] = mapped_column(String(200), nullable=True)
+    max_turns: Mapped[int] = mapped_column(Integer, nullable=True)
+    request_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=True)
+    max_result_rows: Mapped[int] = mapped_column(Integer, nullable=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=func.now(),
+    )
+
+
+class AIConversation(Base):
+    """单 Agent 对话会话。"""
+
+    __tablename__ = "ai_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default="新对话")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        Index("idx_ai_conversations_user_updated", "user_id", "updated_at"),
+    )
+
+
+class AIMessage(Base):
+    """对话消息及其结构化图表、工具轨迹。"""
+
+    __tablename__ = "ai_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("ai_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    charts_json: Mapped[str] = mapped_column(Text, nullable=True)
+    tool_trace_json: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_ai_messages_conversation_created", "conversation_id", "created_at"),
     )

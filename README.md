@@ -11,6 +11,8 @@ CostMatrix 是一个基于 FastAPI + Pandas + OpenPyXL 的企业差旅分析平�
 - 🔍 **异常检测**: 交叉验证考勤与差旅记录，识别异常情况
 - 📈 **可视化支持**: 生成 Dashboard 所需的 JSON 数据
 - 📤 **Excel 导出**: 在原文件中追加分析结果 Sheet（保留原样式）
+- 🤖 **成本分析 Agent**: 基于 Claude Agent SDK 对全部业务数据进行只读对话查询
+- 📊 **AI 图表**: Agent 输出结构化 ECharts 配置并在对话中交互渲染
 
 ---
 
@@ -33,7 +35,7 @@ CostMatrix/
 
 ### 1. 环境准备
 
-确保已安装 Python 3.8+：
+后端 Agent 需要 Python 3.10+（Docker 使用 Python 3.11）：
 
 ```bash
 python --version
@@ -70,6 +72,15 @@ python main.py
 ---
 
 ## 📡 API 端点
+
+### Claude Agent SDK
+
+- `POST /api/agent/chat/stream`：固定 CostMatrix Agent 流式对话
+- `GET /api/agent/conversations`：当前用户的对话历史
+- `GET /api/agent/conversations/{id}/messages`：读取对话消息与图表
+- `GET/PUT/DELETE /api/ai-settings`：管理员读取、覆盖或重置模型设置
+
+Agent 使用进程内 MCP 工具发现数据库表、字段、样例、不同值及记录数，并执行受行数限制的只读 SQL。工具层会拒绝写入、DDL、多语句和认证机密字段。模型 API Key 以 `SECRET_KEY` 派生密钥加密保存，接口只返回是否已配置。
 
 ### 1. 健康检查
 

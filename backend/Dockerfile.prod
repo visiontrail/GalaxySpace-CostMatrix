@@ -1,5 +1,5 @@
 # Backend production Dockerfile for FastAPI
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -9,6 +9,13 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# gosu lets the entrypoint drop from root to a non-root user after fixing
+# up bind-mount ownership; the Claude Agent SDK refuses to run with
+# --dangerously-skip-permissions as root, so the app process must not be root.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gosu && \
+    rm -rf /var/lib/apt/lists/*
+
 # Dependencies
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
@@ -16,9 +23,17 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r re
 # Application code
 COPY backend/app /app/app
 COPY config /app/config
+COPY backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser && \
+    mkdir -p /app/uploads /app/data /app/logs && \
+    chown -R appuser:appuser /app /home/appuser
 
 # Expose port
 EXPOSE 8000
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Production startup (no auto-reload)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

@@ -7,6 +7,8 @@ import Departments from './pages/Departments'
 import Anomalies from './pages/Anomalies'
 import Users from './pages/Users'
 import Login from './pages/Login'
+import AgentChat from './pages/AgentChat'
+import Settings from './pages/Settings'
 import RequireAuth from './components/RequireAuth'
 import './App.css'
 
@@ -28,6 +30,8 @@ function App() {
         <Route path="departments" element={<Departments />} />
         <Route path="anomalies" element={<Anomalies />} />
         <Route path="users" element={<Users />} />
+        <Route path="ai-agent" element={<AgentChat />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   )

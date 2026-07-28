@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.routes import router
+from app.api.agent_routes import router as agent_router
 from app.db.database import init_db, SessionLocal
 from app.services.auth_service import ensure_initial_admin
 
@@ -36,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api", tags=["analysis"])
+app.include_router(agent_router, prefix="/api")
 
 
 @app.on_event("startup")

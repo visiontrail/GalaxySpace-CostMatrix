@@ -66,6 +66,20 @@ class Settings(BaseSettings):
     db_password: str = ""
     db_charset: str = "utf8mb4"
 
+    # Claude Agent SDK 配置
+    # 管理员可在设置页面覆盖这些启动默认值，覆盖值持久化在数据库中。
+    anthropic_provider: str = "anthropic"
+    anthropic_api_key: str = ""
+    anthropic_base_url: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_max_turns: int = 12
+    # 单次模型调用的超时，同时用作 Agent 的静默超时（多久没有任何进展算卡死）。
+    anthropic_request_timeout_seconds: int = 180
+    # 一次提问允许的总时长上限。多轮工具调用的分析经常需要数分钟，
+    # 这里只做兜底，避免异常会话长期占用连接。仅支持环境变量配置。
+    agent_total_timeout_seconds: int = 1800
+    agent_max_result_rows: int = 500
+
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def split_origins(cls, value):
@@ -112,6 +126,20 @@ class Settings(BaseSettings):
         if db_type not in {"sqlite", "mysql"}:
             raise ValueError("DB_TYPE 仅支持 sqlite 或 mysql")
         return db_type
+
+    @field_validator("anthropic_provider", mode="before")
+    @classmethod
+    def normalize_anthropic_provider(cls, value):
+        provider = str(value or "anthropic").strip().lower()
+        supported_providers = {
+            "anthropic", "deepseek", "aliyun_beijing", "aliyun_workspace",
+            "aliyun_singapore", "aliyun_token_plan", "aliyun_coding_plan",
+            "zhipu", "kimi", "minimax", "stepfun", "stepfun_plan",
+            "xiaomi", "tencent", "custom",
+        }
+        if provider not in supported_providers:
+            raise ValueError("ANTHROPIC_PROVIDER 配置了不支持的服务商")
+        return provider
 
 
 settings = Settings()

@@ -9,6 +9,8 @@ FastAPI 后端服务，提供数据分析 REST API。
 - **Openpyxl**: Excel 操作
 - **Pydantic**: 数据验证
 - **Uvicorn**: ASGI 服务器
+- **Claude Agent SDK**: 单 Agent 工具调用与流式对话
+- **ECharts**: AI 结构化图表协议
 
 ## 快速开始
 
@@ -108,6 +110,12 @@ DB_CHARSET=utf8mb4
 
 # 或直接使用完整连接串（优先级更高）
 # DATABASE_URL=mysql+pymysql://root:your_password@127.0.0.1:3306/costmatrix?charset=utf8mb4
+
+# Claude Agent SDK（也可由管理员在设置页面覆盖）
+ANTHROPIC_PROVIDER=anthropic
+ANTHROPIC_API_KEY=
+ANTHROPIC_BASE_URL=
+ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
 ## 测试
@@ -154,4 +162,3 @@ WantedBy=multi-user.target
 ## License
 
 MIT
-
