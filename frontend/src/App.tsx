@@ -6,6 +6,7 @@ import Projects from './pages/Projects'
 import Departments from './pages/Departments'
 import Anomalies from './pages/Anomalies'
 import Users from './pages/Users'
+import TrendAnalysis from './pages/TrendAnalysis'
 import Login from './pages/Login'
 import AgentChat from './pages/AgentChat'
 import Settings from './pages/Settings'
@@ -29,6 +30,7 @@ function App() {
         <Route path="projects" element={<Projects />} />
         <Route path="departments" element={<Departments />} />
         <Route path="anomalies" element={<Anomalies />} />
+        <Route path="trends" element={<TrendAnalysis />} />
         <Route path="users" element={<Users />} />
         <Route path="ai-agent" element={<AgentChat />} />
         <Route path="settings" element={<Settings />} />

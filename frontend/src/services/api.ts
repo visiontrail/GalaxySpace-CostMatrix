@@ -361,9 +361,11 @@ export const streamAgentChat = async (
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let streamDone = false
 
-  while (true) {
+  while (!streamDone) {
     const { done, value } = await reader.read()
+    streamDone = done
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
     const blocks = buffer.split(/\r?\n\r?\n/)
     buffer = blocks.pop() || ''
@@ -377,7 +379,6 @@ export const streamAgentChat = async (
         onEvent(JSON.parse(data) as AgentStreamEvent)
       }
     })
-    if (done) break
   }
 }
 
