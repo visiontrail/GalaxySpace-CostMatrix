@@ -243,6 +243,9 @@ class AIMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     charts_json: Mapped[str] = mapped_column(Text, nullable=True)
     tool_trace_json: Mapped[str] = mapped_column(Text, nullable=True)
+    # 回答产出信息：所用模型与本轮工作时长，供历史消息回显「模型 / 耗时」。
+    model: Mapped[str] = mapped_column(String(200), nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (

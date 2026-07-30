@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List
 
@@ -97,6 +98,8 @@ class CostMatrixAgent:
                 "Claude Agent SDK 未安装，请安装后端依赖后重试。"
             ) from exc
 
+        # 本轮工作时长：从 Agent 开始编排到产出 final 事件，用于前端展示「耗时」。
+        started_at = time.monotonic()
         charts: List[Dict[str, Any]] = []
         tool_trace: List[Dict[str, Any]] = []
         db_server, db_tools = build_database_mcp_server(
@@ -238,6 +241,7 @@ class CostMatrixAgent:
             "charts": charts,
             "tool_trace": tool_trace,
             "model": model,
+            "duration_ms": int((time.monotonic() - started_at) * 1000),
             "usage": usage,
             "streamed": bool(partial_text),
             "interrupted": bool(timeout_notice),

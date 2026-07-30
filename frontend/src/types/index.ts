@@ -63,6 +63,10 @@ export interface AgentMessage {
   content: string
   charts: AgentChartSpec[]
   tool_trace: AgentToolTrace[]
+  /** 生成该回答所用的模型，仅 assistant 消息有值 */
+  model?: string | null
+  /** 本轮 Agent 工作时长（毫秒），仅 assistant 消息有值 */
+  duration_ms?: number | null
   created_at: string
 }
 
@@ -129,6 +133,7 @@ export type AgentStreamEvent =
       charts: AgentChartSpec[]
       tool_trace: AgentToolTrace[]
       model: string
+      duration_ms?: number
       streamed: boolean
       interrupted?: boolean
     }

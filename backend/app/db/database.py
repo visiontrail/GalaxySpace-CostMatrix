@@ -1,7 +1,7 @@
 """Database connection and initialization for CostMatrix."""
 from pathlib import Path
 from typing import Optional
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
@@ -83,6 +83,38 @@ engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _sync_missing_columns(metadata) -> None:
+    """Add columns that exist on the models but not yet in an older database.
+
+    ``create_all`` only creates missing tables, so a model that gains a new
+    optional column would keep failing against a database created earlier.
+    Only nullable columns are added — anything else needs a real migration.
+    """
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    for table in metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        present = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in present or not column.nullable:
+                continue
+            column_type = column.type.compile(dialect=engine.dialect)
+            try:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}")
+                    )
+            except OperationalError as exc:
+                # Another worker may have added the column between inspect and ALTER.
+                message = str(exc).lower()
+                if "duplicate" not in message and "already exists" not in message:
+                    raise
+                logger.warning(f"Column {table.name}.{column.name} already added concurrently")
+                continue
+            logger.info(f"Added missing column {table.name}.{column.name} ({column_type})")
+
+
 def init_db():
     """Initialize database with schema and indexes."""
     try:
@@ -90,6 +122,7 @@ def init_db():
 
         try:
             Base.metadata.create_all(bind=engine)
+            _sync_missing_columns(Base.metadata)
         except OperationalError as exc:
             # Multiple Uvicorn workers may run startup concurrently. If another
             # worker has created tables first, treat "already exists" as benign.

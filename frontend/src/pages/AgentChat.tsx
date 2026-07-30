@@ -14,8 +14,11 @@ import {
 import {
   ArrowDownOutlined,
   BarChartOutlined,
+  CopyOutlined,
   DeleteOutlined,
   DatabaseOutlined,
+  FilePdfOutlined,
+  LoadingOutlined,
   MessageOutlined,
   PlusOutlined,
   RobotOutlined,
@@ -32,6 +35,12 @@ import {
   listAgentConversations,
   streamAgentChat,
 } from '@/services/api'
+import {
+  collectChartImages,
+  copyText,
+  exportAgentMessagePdf,
+  formatDuration,
+} from '@/utils/agentExport'
 import type {
   AgentChartSpec,
   AgentConversation,
@@ -73,6 +82,9 @@ const AgentChat = () => {
   const [statusText, setStatusText] = useState('')
   const [liveTools, setLiveTools] = useState<AgentToolTrace[]>([])
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [exportingId, setExportingId] = useState<number | null>(null)
+  // 正在流式输出的那条回复：它还没拿到模型与耗时，先不显示操作栏。
+  const [streamingId, setStreamingId] = useState<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // 用户主动向上翻阅时暂停自动贴底，避免流式输出把视图拽回底部。
@@ -212,6 +224,7 @@ const AgentChat = () => {
     setMessages((current) => [...current, userMessage, assistantMessage])
     setDraft('')
     setSending(true)
+    setStreamingId(assistantId)
     setLiveTools([])
     setStatusText('正在连接 CostMatrix Agent')
 
@@ -252,6 +265,8 @@ const AgentChat = () => {
             content: event.answer,
             charts: event.charts,
             tool_trace: event.tool_trace,
+            model: event.model,
+            duration_ms: event.duration_ms ?? null,
           }))
           setStatusText('')
           break
@@ -285,6 +300,7 @@ const AgentChat = () => {
     } finally {
       abortRef.current = null
       setSending(false)
+      setStreamingId(null)
       setStatusText('')
     }
   }
@@ -297,6 +313,45 @@ const AgentChat = () => {
     () => conversations.find((item) => item.id === selectedId)?.title || '新对话',
     [conversations, selectedId]
   )
+
+  // 只复制回答正文：图表是结构化数据，不属于 Markdown 的一部分。
+  const copyMessageMarkdown = async (item: AgentMessage) => {
+    const content = item.content.trim()
+    if (!content) return
+    if (await copyText(content)) {
+      message.success('Markdown 已复制')
+    } else {
+      message.error('复制 Markdown 失败')
+    }
+  }
+
+  const exportMessagePdf = async (
+    item: AgentMessage,
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    // 正文直接取页面上已渲染的 DOM，导出结果与用户看到的一致。
+    const article = event.currentTarget.closest('.agent-message') as HTMLElement | null
+    const contentHtml = article?.querySelector('.agent-message-content')?.innerHTML
+    if (!contentHtml) {
+      message.error('未找到可导出的内容')
+      return
+    }
+    setExportingId(item.id)
+    try {
+      await exportAgentMessagePdf({
+        title,
+        contentHtml,
+        charts: collectChartImages(article),
+        model: item.model,
+        durationMs: item.duration_ms,
+      })
+      message.success('PDF 已开始下载')
+    } catch (error: any) {
+      message.error(error?.message || '导出 PDF 失败，请稍后重试')
+    } finally {
+      setExportingId(null)
+    }
+  }
 
   return (
     <div className="agent-workbench">
@@ -431,6 +486,46 @@ const AgentChat = () => {
                     {item.charts.map((chart: AgentChartSpec, index) => (
                       <AgentChart key={`${chart.title}-${index}`} spec={chart} />
                     ))}
+                    {item.role === 'assistant' &&
+                      item.content.trim() &&
+                      item.id !== streamingId && (
+                        <div className="agent-message-actions">
+                          <div className="agent-action-group">
+                            <Tooltip title="复制本次回复 Markdown">
+                              <button
+                                type="button"
+                                className="agent-action-btn"
+                                aria-label="复制本次回复 Markdown"
+                                onClick={() => copyMessageMarkdown(item)}
+                              >
+                                <CopyOutlined />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="导出本次回复 PDF">
+                              <button
+                                type="button"
+                                className="agent-action-btn"
+                                aria-label="导出本次回复 PDF"
+                                disabled={exportingId === item.id}
+                                onClick={(event) => exportMessagePdf(item, event)}
+                              >
+                                {exportingId === item.id ? <LoadingOutlined /> : <FilePdfOutlined />}
+                              </button>
+                            </Tooltip>
+                          </div>
+                          {item.model && (
+                            <div className="agent-run-meta">
+                              <span className="agent-run-model">模型：{item.model}</span>
+                              {formatDuration(item.duration_ms) && (
+                                <>
+                                  <span className="agent-run-separator" aria-hidden="true" />
+                                  <span>耗时：{formatDuration(item.duration_ms)}</span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                   </div>
                 </article>
               ))}

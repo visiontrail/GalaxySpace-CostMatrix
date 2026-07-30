@@ -48,6 +48,8 @@ class MessageItem(BaseModel):
     content: str
     charts: List[ChartSpec] = Field(default_factory=list)
     tool_trace: List[Dict[str, Any]] = Field(default_factory=list)
+    model: Optional[str] = None
+    duration_ms: Optional[int] = None
     created_at: datetime
 
 
