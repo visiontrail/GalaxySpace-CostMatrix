@@ -213,6 +213,21 @@
   display: block;
 }
 
+.settings-status-inline {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 18px;
+}
+
+.settings-status-inline .ant-tag {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
 .settings-connection-test strong {
   color: #16384a;
   font-size: 13px;

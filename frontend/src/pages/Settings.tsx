@@ -13,6 +13,7 @@ import {
   Select,
   Skeleton,
   Space,
+  Switch,
   Tag,
   Typography,
   message,
@@ -28,6 +29,7 @@ import {
   SaveOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  SwapOutlined,
   ThunderboltOutlined,
   WarningFilled,
 } from '@ant-design/icons'
@@ -56,6 +58,10 @@ const FIELD_LABELS: Record<string, string> = {
   api_key: 'API Key',
   base_url: 'Base URL',
   model: '模型',
+  backup_provider: '备用 Provider',
+  backup_api_key: '备用 API Key',
+  backup_base_url: '备用 Base URL',
+  backup_model: '备用模型',
   max_turns: '最大轮次',
   request_timeout_seconds: '请求超时',
   max_result_rows: '查询行数',
@@ -77,6 +83,7 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   stepfun_plan: 'https://api.stepfun.com/step_plan',
   xiaomi: 'https://api.xiaomimimo.com/anthropic',
   tencent: 'https://api.hunyuan.cloud.tencent.com/anthropic',
+  yhroot: 'https://oneapi.yhroot.com',
   custom: '',
 }
 
@@ -86,6 +93,7 @@ const PROVIDER_OPTIONS = [
     options: [
       { value: 'anthropic', label: 'Anthropic 官方' },
       { value: 'deepseek', label: 'DeepSeek · Anthropic 兼容' },
+      { value: 'yhroot', label: 'yhroot / 银河模型网关' },
       { value: 'custom', label: '自定义 Anthropic 兼容端点' },
     ],
   },
@@ -131,6 +139,8 @@ const Settings = () => {
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [testingTarget, setTestingTarget] = useState<'primary' | 'backup'>('primary')
+  const [testTarget, setTestTarget] = useState<'primary' | 'backup'>('primary')
   const [testResult, setTestResult] = useState<AIConnectionTestResult | null>(null)
 
   const applySettings = (value: AISettings) => {
@@ -140,6 +150,15 @@ const Settings = () => {
       api_key: '',
       base_url: value.base_url,
       model: value.model,
+      backup_enabled: value.backup_enabled,
+      backup_provider: value.backup_provider,
+      backup_api_key: '',
+      backup_base_url: value.backup_base_url,
+      backup_model: value.backup_model,
+      router_enabled: value.router_enabled,
+      router_first_token_timeout_seconds: value.router_first_token_timeout_seconds,
+      router_failure_threshold: value.router_failure_threshold,
+      router_cooldown_seconds: value.router_cooldown_seconds,
       max_turns: value.max_turns,
       request_timeout_seconds: value.request_timeout_seconds,
       max_result_rows: value.max_result_rows,
@@ -169,8 +188,11 @@ const Settings = () => {
       const payload = {
         ...values,
         api_key: values.api_key?.trim() || undefined,
+        backup_api_key: values.backup_api_key?.trim() || undefined,
         base_url: values.base_url?.trim(),
         model: values.model?.trim(),
+        backup_base_url: values.backup_base_url?.trim(),
+        backup_model: values.backup_model?.trim(),
         system_prompt: values.system_prompt?.trim(),
       }
       applySettings(await updateAISettings(payload))
@@ -194,22 +216,30 @@ const Settings = () => {
     }
   }
 
-  const testConnection = async () => {
+  const testConnection = async (target: 'primary' | 'backup') => {
     try {
+      const prefix = target === 'backup' ? 'backup_' : ''
       const values = await form.validateFields([
-        'provider',
-        'api_key',
-        'base_url',
-        'model',
+        `${prefix}provider`,
+        `${prefix}api_key`,
+        `${prefix}base_url`,
+        `${prefix}model`,
       ])
+      const provider = target === 'backup' ? values.backup_provider : values.provider
+      const apiKey = target === 'backup' ? values.backup_api_key : values.api_key
+      const baseUrl = target === 'backup' ? values.backup_base_url : values.base_url
+      const selectedModel = target === 'backup' ? values.backup_model : values.model
       setTesting(true)
+      setTestingTarget(target)
       setTestResult(null)
       const result = await testAISettings({
-        provider: values.provider,
-        api_key: values.api_key?.trim() || undefined,
-        base_url: values.base_url?.trim(),
-        model: values.model?.trim(),
+        provider: provider!,
+        api_key: apiKey?.trim() || undefined,
+        base_url: baseUrl!.trim(),
+        model: selectedModel!.trim(),
+        target,
       })
+      setTestTarget(target)
       setTestResult(result)
       message.success(`模型连接测试成功（${result.latency_ms} ms）`)
     } catch (error: any) {
@@ -335,24 +365,184 @@ const Settings = () => {
               </Form.Item>
             </Col>
           </Row>
-          <div className={`settings-connection-test ${testResult ? 'is-success' : ''}`}>
+          <div className={`settings-connection-test ${testResult && testTarget === 'primary' ? 'is-success' : ''}`}>
             <div>
               <strong>连接可用性检查</strong>
               <span>
-                {testResult
+                {testResult && testTarget === 'primary'
                   ? `${testResult.message} · ${testResult.latency_ms} ms`
                   : '发送一个最小请求，验证 Base URL、API Key 和模型名称；不会保存表单。'}
               </span>
-              {testResult && <code>{testResult.endpoint}</code>}
+              {testResult && testTarget === 'primary' && <code>{testResult.endpoint}</code>}
             </div>
             <Button
               icon={<ThunderboltOutlined />}
-              loading={testing}
-              onClick={testConnection}
+              loading={testing && testingTarget === 'primary'}
+              onClick={() => testConnection('primary')}
             >
               测试连接
             </Button>
           </div>
+        </Card>
+
+        <Card className="settings-section-card" variant="borderless">
+          <div className="settings-section-title">
+            <span><SwapOutlined /></span>
+            <div>
+              <Title level={4}>主备模型路由</Title>
+              <Text type="secondary">
+                主模型只在首个模型输出前失败或超时时切换；已开始回答后不会重放工具调用
+              </Text>
+            </div>
+          </div>
+          <Divider />
+          <Row gutter={[20, 12]} align="middle">
+            <Col xs={24} md={8}>
+              <Form.Item label="启用备用模型" name="backup_enabled" valuePropName="checked">
+                <Switch checkedChildren="已启用" unCheckedChildren="已停用" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item label="启用自动故障接管" name="router_enabled" valuePropName="checked">
+                <Switch checkedChildren="自动切换" unCheckedChildren="仅主模型" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <div className="settings-status-inline">
+                <Text type="secondary">当前路由</Text>
+                <Tag color={settings.router.serving_slot === 'backup' ? 'orange' : 'green'}>
+                  {settings.router.serving_slot === 'backup' ? 'BACKUP' : 'PRIMARY'}
+                </Tag>
+                {settings.router.primary_breaker_open && (
+                  <Text type="warning">
+                    主模型冷却中 {settings.router.cooldown_remaining_seconds ?? 0}s
+                  </Text>
+                )}
+              </div>
+            </Col>
+          </Row>
+
+          <Form.Item noStyle shouldUpdate={(previous, current) => (
+            previous.backup_enabled !== current.backup_enabled
+            || previous.backup_provider !== current.backup_provider
+          )}>
+            {({ getFieldValue }) => {
+              const backupEnabled = Boolean(getFieldValue('backup_enabled'))
+              return (
+                <>
+                  <Row gutter={[20, 2]}>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        label={label('backup_provider')}
+                        name="backup_provider"
+                        rules={[{ required: backupEnabled, message: '请选择备用 Provider' }]}
+                      >
+                        <Select
+                          showSearch
+                          optionFilterProp="label"
+                          options={PROVIDER_OPTIONS}
+                          disabled={!backupEnabled}
+                          onChange={(provider) => {
+                            form.setFieldValue('backup_base_url', PROVIDER_BASE_URLS[provider])
+                            setTestResult(null)
+                          }}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={16}>
+                      <Form.Item
+                        label={label('backup_api_key')}
+                        name="backup_api_key"
+                        extra={settings.backup_api_key_set
+                          ? '备用密钥已设置；留空会保留现有密钥。'
+                          : '备用密钥独立加密保存，后端永不回传明文。'}
+                      >
+                        <Input.Password
+                          prefix={<KeyOutlined />}
+                          autoComplete="new-password"
+                          disabled={!backupEnabled}
+                          placeholder={settings.backup_api_key_set
+                            ? '••••••••••••••••（已设置）'
+                            : '输入备用模型 API Key'}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={14}>
+                      <Form.Item
+                        label={label('backup_base_url')}
+                        name="backup_base_url"
+                        rules={[
+                          { required: backupEnabled, message: '请输入备用 Base URL' },
+                          { pattern: /^https?:\/\//, message: '必须以 http:// 或 https:// 开头' },
+                        ]}
+                      >
+                        <Input prefix={<ApiOutlined />} disabled={!backupEnabled} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={10}>
+                      <Form.Item
+                        label={label('backup_model')}
+                        name="backup_model"
+                        rules={[{ required: backupEnabled, message: '请输入备用模型名称' }]}
+                      >
+                        <Input prefix={<RobotOutlined />} disabled={!backupEnabled} placeholder="kimi-k3" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <div className={`settings-connection-test ${testResult && testTarget === 'backup' ? 'is-success' : ''}`}>
+                    <div>
+                      <strong>备用连接可用性检查</strong>
+                      <span>
+                        {testResult && testTarget === 'backup'
+                          ? `${testResult.message} · ${testResult.latency_ms} ms`
+                          : '独立验证备用 Base URL、API Key 和模型，不影响当前路由。'}
+                      </span>
+                      {testResult && testTarget === 'backup' && <code>{testResult.endpoint}</code>}
+                    </div>
+                    <Button
+                      icon={<ThunderboltOutlined />}
+                      disabled={!backupEnabled}
+                      loading={testing && testingTarget === 'backup'}
+                      onClick={() => testConnection('backup')}
+                    >
+                      测试备用连接
+                    </Button>
+                  </div>
+                </>
+              )
+            }}
+          </Form.Item>
+
+          <Divider />
+          <Row gutter={[20, 2]}>
+            <Col xs={24} md={8}>
+              <Form.Item
+                label="首个模型输出超时"
+                name="router_first_token_timeout_seconds"
+                extra="0 表示只在明确错误时切换。"
+              >
+                <InputNumber min={0} max={600} suffix="秒" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item label="连续失败阈值" name="router_failure_threshold">
+                <InputNumber min={1} max={20} suffix="次" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item label="主模型冷却时间" name="router_cooldown_seconds">
+                <InputNumber min={10} max={86400} suffix="秒" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          {settings.router.primary_breaker_open && settings.router.last_error && (
+            <Alert
+              showIcon
+              type="warning"
+              message="主模型已自动熔断，当前由备用模型接管"
+              description={settings.router.last_error}
+            />
+          )}
         </Card>
 
         <Card className="settings-section-card" variant="borderless">

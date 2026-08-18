@@ -65,6 +65,10 @@ export interface AgentMessage {
   tool_trace: AgentToolTrace[]
   /** 生成该回答所用的模型，仅 assistant 消息有值 */
   model?: string | null
+  /** 实际提供本轮回答的服务商。 */
+  provider?: string | null
+  /** primary 或 backup，用于显示故障接管结果。 */
+  route_slot?: string | null
   /** 本轮 Agent 工作时长（毫秒），仅 assistant 消息有值 */
   duration_ms?: number | null
   created_at: string
@@ -91,9 +95,26 @@ export interface AISettings {
     | 'stepfun_plan'
     | 'xiaomi'
     | 'tencent'
+    | 'yhroot'
     | 'custom'
   base_url: string
   model: string
+  backup_enabled: boolean
+  backup_provider: string
+  backup_base_url: string
+  backup_model: string
+  backup_api_key_set: boolean
+  router_enabled: boolean
+  router_first_token_timeout_seconds: number
+  router_failure_threshold: number
+  router_cooldown_seconds: number
+  router: {
+    serving_slot?: 'primary' | 'backup'
+    primary_breaker_open?: boolean
+    consecutive_failures?: number
+    cooldown_remaining_seconds?: number
+    last_error?: string
+  }
   max_turns: number
   request_timeout_seconds: number
   max_result_rows: number
@@ -108,6 +129,15 @@ export interface AISettingsUpdate {
   api_key?: string
   base_url?: string
   model?: string
+  backup_enabled?: boolean
+  backup_provider?: string
+  backup_api_key?: string
+  backup_base_url?: string
+  backup_model?: string
+  router_enabled?: boolean
+  router_first_token_timeout_seconds?: number
+  router_failure_threshold?: number
+  router_cooldown_seconds?: number
   max_turns?: number
   request_timeout_seconds?: number
   max_result_rows?: number
@@ -133,6 +163,8 @@ export type AgentStreamEvent =
       charts: AgentChartSpec[]
       tool_trace: AgentToolTrace[]
       model: string
+      provider: string
+      route_slot: 'primary' | 'backup'
       duration_ms?: number
       streamed: boolean
       interrupted?: boolean

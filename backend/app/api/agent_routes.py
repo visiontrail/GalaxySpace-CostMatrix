@@ -142,6 +142,8 @@ async def get_conversation_messages(
                 charts=_json_list(row.charts_json),
                 tool_trace=_json_list(row.tool_trace_json),
                 model=row.model,
+                provider=row.provider,
+                route_slot=row.route_slot,
                 duration_ms=row.duration_ms,
                 created_at=row.created_at,
             )
@@ -254,6 +256,8 @@ async def stream_agent_chat(
                         default=str,
                     ),
                     model=str(final_payload.get("model") or "") or None,
+                    provider=str(final_payload.get("provider") or "") or None,
+                    route_slot=str(final_payload.get("route_slot") or "") or None,
                     duration_ms=(
                         int(final_payload["duration_ms"])
                         if isinstance(final_payload.get("duration_ms"), (int, float))

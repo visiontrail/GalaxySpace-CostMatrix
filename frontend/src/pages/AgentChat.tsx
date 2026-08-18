@@ -266,6 +266,8 @@ const AgentChat = () => {
             charts: event.charts,
             tool_trace: event.tool_trace,
             model: event.model,
+            provider: event.provider,
+            route_slot: event.route_slot,
             duration_ms: event.duration_ms ?? null,
           }))
           setStatusText('')
@@ -515,6 +517,12 @@ const AgentChat = () => {
                           </div>
                           {item.model && (
                             <div className="agent-run-meta">
+                              {item.route_slot && (
+                                <Tag color={item.route_slot === 'backup' ? 'orange' : 'green'}>
+                                  {item.route_slot === 'backup' ? '备用接管' : '主模型'}
+                                </Tag>
+                              )}
+                              {item.provider && <span>Provider：{item.provider}</span>}
                               <span className="agent-run-model">模型：{item.model}</span>
                               {formatDuration(item.duration_ms) && (
                                 <>

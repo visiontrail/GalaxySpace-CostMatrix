@@ -169,3 +169,49 @@ def test_connection_uses_messages_endpoint(monkeypatch):
         "api_key": "test-key",
         "timeout": 30,
     }
+
+
+def test_primary_and_backup_keys_are_encrypted_independently(monkeypatch):
+    test_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(test_engine)
+    session_factory = sessionmaker(bind=test_engine)
+    monkeypatch.setattr(ai_settings_service.settings, "anthropic_api_key", "")
+    monkeypatch.setattr(ai_settings_service.settings, "anthropic_backup_api_key", "")
+    monkeypatch.setattr(ai_settings_service.settings, "secret_key", "unit-test-key")
+
+    with session_factory() as db:
+        admin = User(username="router-admin", password_hash="hash", is_admin=True)
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        view = ai_settings_service.save(
+            db,
+            AISettingsUpdate(
+                provider="yhroot",
+                api_key="yhroot-secret",
+                base_url="https://oneapi.yhroot.com",
+                model="yinhe-thinking",
+                backup_enabled=True,
+                backup_provider="kimi",
+                backup_api_key="kimi-secret",
+                backup_base_url="https://api.moonshot.cn/anthropic",
+                backup_model="kimi-k3",
+                router_enabled=True,
+            ),
+            admin,
+        )
+        row = db.query(AISettings).filter(AISettings.id == 1).one()
+        effective = ai_settings_service.get_effective(db)
+
+        assert "yhroot-secret" not in row.encrypted_api_key
+        assert "kimi-secret" not in row.encrypted_backup_api_key
+        assert effective.api_key == "yhroot-secret"
+        assert effective.backup.api_key == "kimi-secret"
+        assert view.router_enabled is True
+        assert view.backup_api_key_set is True
+        assert "yhroot-secret" not in view.model_dump_json()
+        assert "kimi-secret" not in view.model_dump_json()

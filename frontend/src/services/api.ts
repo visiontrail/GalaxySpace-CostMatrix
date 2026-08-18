@@ -397,7 +397,13 @@ export const resetAISettings = async (): Promise<AISettings> => {
 }
 
 export const testAISettings = async (
-  payload: Pick<AISettingsUpdate, 'provider' | 'api_key' | 'base_url' | 'model'>
+  payload: {
+    provider: string
+    api_key?: string
+    base_url: string
+    model: string
+    target?: 'primary' | 'backup'
+  }
 ): Promise<AIConnectionTestResult> => {
   return apiClient.post<AIConnectionTestResult>('/ai-settings/test', payload)
 }

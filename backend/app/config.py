@@ -72,6 +72,18 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
+    # 可选备用端点；默认关闭，管理员可在设置页覆盖并即时启用。
+    anthropic_backup_enabled: bool = False
+    anthropic_backup_provider: str = "kimi"
+    anthropic_backup_api_key: str = ""
+    anthropic_backup_base_url: str = ""
+    anthropic_backup_model: str = ""
+    # 主端点在首个模型输出前失败或超时才允许切换。已经开始输出后不重放，
+    # 避免重复执行工具与重复计费。
+    model_router_enabled: bool = False
+    model_router_first_token_timeout_seconds: int = 20
+    model_router_failure_threshold: int = 1
+    model_router_cooldown_seconds: int = 60
     anthropic_max_turns: int = 12
     # 单次模型调用的超时，同时用作 Agent 的静默超时（多久没有任何进展算卡死）。
     anthropic_request_timeout_seconds: int = 180
@@ -135,11 +147,16 @@ class Settings(BaseSettings):
             "anthropic", "deepseek", "aliyun_beijing", "aliyun_workspace",
             "aliyun_singapore", "aliyun_token_plan", "aliyun_coding_plan",
             "zhipu", "kimi", "minimax", "stepfun", "stepfun_plan",
-            "xiaomi", "tencent", "custom",
+            "xiaomi", "tencent", "yhroot", "custom",
         }
         if provider not in supported_providers:
             raise ValueError("ANTHROPIC_PROVIDER 配置了不支持的服务商")
         return provider
+
+    @field_validator("anthropic_backup_provider", mode="before")
+    @classmethod
+    def normalize_anthropic_backup_provider(cls, value):
+        return cls.normalize_anthropic_provider(value or "kimi")
 
 
 settings = Settings()

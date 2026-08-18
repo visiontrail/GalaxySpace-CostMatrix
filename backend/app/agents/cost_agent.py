@@ -10,7 +10,9 @@ from typing import Any, AsyncIterator, Dict, List
 
 from app.agents.chart_tools import build_chart_mcp_server
 from app.agents.database_tools import build_database_mcp_server
+from app.agents.routed_query import EndpointSwitchNotice, routed_query
 from app.services.ai_settings_service import EffectiveAISettings
+from app.services.model_router import EndpointChoice
 
 
 class AgentConfigurationError(RuntimeError):
@@ -109,15 +111,6 @@ class CostMatrixAgent:
         chart_server, chart_tool = build_chart_mcp_server(charts)
         all_tools = db_tools + [chart_tool]
 
-        env = {
-            "ANTHROPIC_API_KEY": runtime_settings.api_key,
-            "ANTHROPIC_AUTH_TOKEN": runtime_settings.api_key,
-            "ANTHROPIC_BASE_URL": runtime_settings.base_url,
-            "ANTHROPIC_MODEL": runtime_settings.model,
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": runtime_settings.model,
-            "API_TIMEOUT_MS": str(runtime_settings.request_timeout_seconds * 1_000),
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        }
         history_block = _format_history(history)
         prompt = (
             f"{history_block}\n\n当前用户问题：\n{user_message}"
@@ -131,25 +124,43 @@ class CostMatrixAgent:
         timeout_notice = ""
         emitted_chart_count = 0
         model = runtime_settings.model
+        provider = runtime_settings.provider
+        route_slot = "primary"
         usage: Dict[str, Any] = {}
 
         with tempfile.TemporaryDirectory(prefix="costmatrix-agent-") as temp_dir:
-            options = ClaudeAgentOptions(
-                tools=[],
-                allowed_tools=all_tools,
-                disallowed_tools=_DISABLED_BUILTIN_TOOLS,
-                system_prompt=runtime_settings.system_prompt,
-                mcp_servers={
-                    "costmatrix_db": db_server,
-                    "costmatrix_chart": chart_server,
-                },
-                permission_mode="bypassPermissions",
-                max_turns=runtime_settings.max_turns,
-                model=runtime_settings.model,
-                cwd=str(Path(temp_dir)),
-                env=env,
-                include_partial_messages=True,
-            )
+            def select_endpoint(choice: EndpointChoice) -> None:
+                nonlocal model, provider, route_slot
+                model = choice.model
+                provider = choice.provider
+                route_slot = choice.slot
+
+            def make_options(choice: EndpointChoice):
+                env = {
+                    "ANTHROPIC_API_KEY": choice.api_key,
+                    "ANTHROPIC_AUTH_TOKEN": choice.api_key,
+                    "ANTHROPIC_BASE_URL": choice.base_url,
+                    "ANTHROPIC_MODEL": choice.model,
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": choice.model,
+                    "API_TIMEOUT_MS": str(runtime_settings.request_timeout_seconds * 1_000),
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+                }
+                return ClaudeAgentOptions(
+                    tools=[],
+                    allowed_tools=all_tools,
+                    disallowed_tools=_DISABLED_BUILTIN_TOOLS,
+                    system_prompt=runtime_settings.system_prompt,
+                    mcp_servers={
+                        "costmatrix_db": db_server,
+                        "costmatrix_chart": chart_server,
+                    },
+                    permission_mode="bypassPermissions",
+                    max_turns=runtime_settings.max_turns,
+                    model=choice.model,
+                    cwd=str(Path(temp_dir)),
+                    env=env,
+                    include_partial_messages=True,
+                )
 
             yield {"event": "status", "phase": "thinking", "message": "正在理解问题并规划查询"}
 
@@ -167,11 +178,27 @@ class CostMatrixAgent:
             def next_deadline() -> float:
                 return min(loop.time() + stall_seconds, total_deadline)
 
-            stream = query(prompt=prompt, options=options)
+            stream = routed_query(
+                prompt=prompt,
+                effective=runtime_settings,
+                make_options=make_options,
+                sdk_query=query,
+                on_endpoint=select_endpoint,
+            )
             try:
                 async with asyncio.timeout_at(next_deadline()) as guard:
                     async for message in stream:
                         guard.reschedule(next_deadline())
+
+                        if isinstance(message, EndpointSwitchNotice):
+                            yield {
+                                "event": "status",
+                                "phase": "model_failover",
+                                "message": message.data["message"],
+                                "from_slot": message.data["from_slot"],
+                                "to_slot": message.data["to_slot"],
+                            }
+                            continue
 
                         if isinstance(message, StreamEvent):
                             delta = _extract_stream_delta(message)
@@ -241,6 +268,8 @@ class CostMatrixAgent:
             "charts": charts,
             "tool_trace": tool_trace,
             "model": model,
+            "provider": provider,
+            "route_slot": route_slot,
             "duration_ms": int((time.monotonic() - started_at) * 1000),
             "usage": usage,
             "streamed": bool(partial_text),

@@ -7,7 +7,7 @@ import json
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -94,11 +94,28 @@ PROVIDER_DEFAULTS = {
         "base_url": "https://api.hunyuan.cloud.tencent.com/anthropic",
         "model": "",
     },
+    "yhroot": {
+        "base_url": "https://oneapi.yhroot.com",
+        "model": "yinhe-thinking",
+    },
     "custom": {
         "base_url": "",
         "model": "",
     },
 }
+
+
+@dataclass(frozen=True)
+class ModelEndpointSettings:
+    slot: str
+    provider: str
+    api_key: str
+    base_url: str
+    model: str
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.api_key and self.base_url and self.model)
 
 
 @dataclass(frozen=True)
@@ -112,6 +129,12 @@ class EffectiveAISettings:
     total_timeout_seconds: int
     max_result_rows: int
     system_prompt: str
+    backup: Optional[ModelEndpointSettings] = None
+    backup_enabled: bool = False
+    router_enabled: bool = False
+    router_first_token_timeout_seconds: int = 20
+    router_failure_threshold: int = 1
+    router_cooldown_seconds: int = 60
 
 
 def _fernet() -> Fernet:
@@ -137,15 +160,20 @@ def _get_row(db: Session) -> Optional[AISettings]:
     return db.query(AISettings).filter(AISettings.id == 1).first()
 
 
-def _env_base_url(provider: str) -> str:
-    return settings.anthropic_base_url.strip() or PROVIDER_DEFAULTS[provider]["base_url"]
+def _provider_base_url(provider: str, configured: str) -> str:
+    return configured.strip() or PROVIDER_DEFAULTS[provider]["base_url"]
 
 
-def _env_model(provider: str) -> str:
-    configured = settings.anthropic_model.strip()
-    if provider == settings.anthropic_provider and configured:
+def _provider_model(provider: str, configured: str) -> str:
+    configured = configured.strip()
+    if configured:
         return configured
-    return PROVIDER_DEFAULTS[provider]["model"] or configured
+    return PROVIDER_DEFAULTS[provider]["model"]
+
+
+def _row_or_setting(row: Optional[AISettings], row_key: str, setting_key: str) -> Any:
+    value = getattr(row, row_key, None) if row else None
+    return getattr(settings, setting_key) if value is None else value
 
 
 def get_effective(db: Session) -> EffectiveAISettings:
@@ -162,12 +190,53 @@ def get_effective(db: Session) -> EffectiveAISettings:
     base_url = (
         row.base_url.strip()
         if row and row.base_url is not None
-        else _env_base_url(provider)
+        else _provider_base_url(provider, settings.anthropic_base_url)
     )
     model = (
         row.model.strip()
         if row and row.model is not None
-        else _env_model(provider)
+        else _provider_model(provider, settings.anthropic_model)
+    )
+    backup_enabled = bool(
+        _row_or_setting(row, "backup_enabled", "anthropic_backup_enabled")
+    )
+    backup_provider = str(
+        _row_or_setting(row, "backup_provider", "anthropic_backup_provider") or "kimi"
+    ).strip().lower()
+    if backup_provider not in PROVIDER_DEFAULTS:
+        backup_provider = "kimi"
+    encrypted_backup = getattr(row, "encrypted_backup_api_key", None) if row else None
+    backup_api_key = (
+        _decrypt_secret(encrypted_backup)
+        if encrypted_backup
+        else settings.anthropic_backup_api_key.strip()
+    )
+    backup_base_configured = str(
+        _row_or_setting(row, "backup_base_url", "anthropic_backup_base_url") or ""
+    )
+    backup_model_configured = str(
+        _row_or_setting(row, "backup_model", "anthropic_backup_model") or ""
+    )
+    backup = ModelEndpointSettings(
+        slot="backup",
+        provider=backup_provider,
+        api_key=backup_api_key,
+        base_url=_provider_base_url(backup_provider, backup_base_configured),
+        model=_provider_model(backup_provider, backup_model_configured),
+    )
+    router_enabled = bool(_row_or_setting(row, "router_enabled", "model_router_enabled"))
+    router_first_token_timeout_seconds = int(
+        _row_or_setting(
+            row,
+            "router_first_token_timeout_seconds",
+            "model_router_first_token_timeout_seconds",
+        )
+    )
+    router_failure_threshold = int(
+        _row_or_setting(row, "router_failure_threshold", "model_router_failure_threshold")
+    )
+    router_cooldown_seconds = int(
+        _row_or_setting(row, "router_cooldown_seconds", "model_router_cooldown_seconds")
     )
     max_turns = (
         row.max_turns
@@ -195,6 +264,12 @@ def get_effective(db: Session) -> EffectiveAISettings:
         api_key=api_key,
         base_url=base_url,
         model=model,
+        backup=backup,
+        backup_enabled=backup_enabled,
+        router_enabled=router_enabled,
+        router_first_token_timeout_seconds=router_first_token_timeout_seconds,
+        router_failure_threshold=router_failure_threshold,
+        router_cooldown_seconds=router_cooldown_seconds,
         max_turns=int(max_turns),
         request_timeout_seconds=int(request_timeout_seconds),
         total_timeout_seconds=int(settings.agent_total_timeout_seconds),
@@ -211,6 +286,19 @@ def describe(db: Session) -> AISettingsView:
         "api_key": bool(row and row.encrypted_api_key),
         "base_url": bool(row and row.base_url is not None),
         "model": bool(row and row.model is not None),
+        "backup_enabled": bool(row and row.backup_enabled is not None),
+        "backup_provider": bool(row and row.backup_provider is not None),
+        "backup_api_key": bool(row and row.encrypted_backup_api_key),
+        "backup_base_url": bool(row and row.backup_base_url is not None),
+        "backup_model": bool(row and row.backup_model is not None),
+        "router_enabled": bool(row and row.router_enabled is not None),
+        "router_first_token_timeout_seconds": bool(
+            row and row.router_first_token_timeout_seconds is not None
+        ),
+        "router_failure_threshold": bool(
+            row and row.router_failure_threshold is not None
+        ),
+        "router_cooldown_seconds": bool(row and row.router_cooldown_seconds is not None),
         "max_turns": bool(row and row.max_turns is not None),
         "request_timeout_seconds": bool(row and row.request_timeout_seconds is not None),
         "max_result_rows": bool(row and row.max_result_rows is not None),
@@ -222,11 +310,30 @@ def describe(db: Session) -> AISettingsView:
     }
     if not effective.api_key:
         sources["api_key"] = "unset"
+    if not effective.backup or not effective.backup.api_key:
+        sources["backup_api_key"] = "unset"
+
+    try:
+        from app.services import model_router
+
+        router = model_router.health_snapshot(effective)
+    except Exception:
+        router = {}
 
     return AISettingsView(
         provider=effective.provider,
         base_url=effective.base_url,
         model=effective.model,
+        backup_enabled=effective.backup_enabled,
+        backup_provider=effective.backup.provider if effective.backup else "kimi",
+        backup_base_url=effective.backup.base_url if effective.backup else "",
+        backup_model=effective.backup.model if effective.backup else "",
+        backup_api_key_set=bool(effective.backup and effective.backup.api_key),
+        router_enabled=effective.router_enabled,
+        router_first_token_timeout_seconds=effective.router_first_token_timeout_seconds,
+        router_failure_threshold=effective.router_failure_threshold,
+        router_cooldown_seconds=effective.router_cooldown_seconds,
+        router=router,
         max_turns=effective.max_turns,
         request_timeout_seconds=effective.request_timeout_seconds,
         max_result_rows=effective.max_result_rows,
@@ -244,6 +351,24 @@ def _validate_post_save(effective: EffectiveAISettings) -> None:
         raise ValueError("必须填写模型")
     if effective.base_url and not effective.base_url.startswith(("http://", "https://")):
         raise ValueError("Base URL 必须以 http:// 或 https:// 开头")
+    if not (0 <= effective.router_first_token_timeout_seconds <= 600):
+        raise ValueError("首个模型输出超时必须在 0~600 秒之间")
+    if not (1 <= effective.router_failure_threshold <= 20):
+        raise ValueError("主端点失败阈值必须在 1~20 次之间")
+    if not (10 <= effective.router_cooldown_seconds <= 86_400):
+        raise ValueError("主端点冷却时间必须在 10~86400 秒之间")
+    if effective.router_enabled and not effective.backup_enabled:
+        raise ValueError("启用主备路由前必须先启用备用模型")
+    if effective.backup_enabled:
+        backup = effective.backup
+        if backup is None or not backup.api_key:
+            raise ValueError("启用备用模型前必须填写备用 API Key")
+        if not backup.base_url:
+            raise ValueError("启用备用模型前必须填写备用 Base URL")
+        if not backup.model:
+            raise ValueError("启用备用模型前必须填写备用模型")
+        if not backup.base_url.startswith(("http://", "https://")):
+            raise ValueError("备用 Base URL 必须以 http:// 或 https:// 开头")
 
 
 def save(db: Session, payload: AISettingsUpdate, updated_by: User) -> AISettingsView:
@@ -260,6 +385,37 @@ def save(db: Session, payload: AISettingsUpdate, updated_by: User) -> AISettings
         row.base_url = changes["base_url"].strip()
     if "model" in changes and changes["model"] is not None:
         row.model = changes["model"].strip()
+    if "backup_enabled" in changes and changes["backup_enabled"] is not None:
+        row.backup_enabled = bool(changes["backup_enabled"])
+    if "backup_provider" in changes and changes["backup_provider"] is not None:
+        row.backup_provider = changes["backup_provider"]
+    if "backup_api_key" in changes and changes["backup_api_key"] is not None:
+        secret = changes["backup_api_key"].strip()
+        if secret:
+            row.encrypted_backup_api_key = _encrypt_secret(secret)
+    if "backup_base_url" in changes and changes["backup_base_url"] is not None:
+        row.backup_base_url = changes["backup_base_url"].strip()
+    if "backup_model" in changes and changes["backup_model"] is not None:
+        row.backup_model = changes["backup_model"].strip()
+    if "router_enabled" in changes and changes["router_enabled"] is not None:
+        row.router_enabled = bool(changes["router_enabled"])
+    if (
+        "router_first_token_timeout_seconds" in changes
+        and changes["router_first_token_timeout_seconds"] is not None
+    ):
+        row.router_first_token_timeout_seconds = changes[
+            "router_first_token_timeout_seconds"
+        ]
+    if (
+        "router_failure_threshold" in changes
+        and changes["router_failure_threshold"] is not None
+    ):
+        row.router_failure_threshold = changes["router_failure_threshold"]
+    if (
+        "router_cooldown_seconds" in changes
+        and changes["router_cooldown_seconds"] is not None
+    ):
+        row.router_cooldown_seconds = changes["router_cooldown_seconds"]
     if "max_turns" in changes and changes["max_turns"] is not None:
         row.max_turns = changes["max_turns"]
     if (
@@ -304,7 +460,10 @@ def prepare_connection_test(
 ) -> EffectiveAISettings:
     """将未保存的表单值与当前密钥合并，不修改数据库。"""
     current = get_effective(db)
-    api_key = (payload.api_key or "").strip() or current.api_key
+    current_endpoint = current.backup if payload.target == "backup" else None
+    api_key = (payload.api_key or "").strip() or (
+        current_endpoint.api_key if current_endpoint else current.api_key
+    )
     candidate = replace(
         current,
         provider=payload.provider,

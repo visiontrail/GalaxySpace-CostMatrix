@@ -49,6 +49,8 @@ class MessageItem(BaseModel):
     charts: List[ChartSpec] = Field(default_factory=list)
     tool_trace: List[Dict[str, Any]] = Field(default_factory=list)
     model: Optional[str] = None
+    provider: Optional[str] = None
+    route_slot: Optional[str] = None
     duration_ms: Optional[int] = None
     created_at: datetime
 
@@ -63,6 +65,15 @@ class AISettingsUpdate(BaseModel):
     api_key: Optional[str] = Field(None, max_length=20_000)
     base_url: Optional[str] = Field(None, max_length=500)
     model: Optional[str] = Field(None, max_length=200)
+    backup_enabled: Optional[bool] = None
+    backup_provider: Optional[str] = None
+    backup_api_key: Optional[str] = Field(None, max_length=20_000)
+    backup_base_url: Optional[str] = Field(None, max_length=500)
+    backup_model: Optional[str] = Field(None, max_length=200)
+    router_enabled: Optional[bool] = None
+    router_first_token_timeout_seconds: Optional[int] = Field(None, ge=0, le=600)
+    router_failure_threshold: Optional[int] = Field(None, ge=1, le=20)
+    router_cooldown_seconds: Optional[int] = Field(None, ge=10, le=86_400)
     max_turns: Optional[int] = Field(None, ge=1, le=50)
     request_timeout_seconds: Optional[int] = Field(None, ge=30, le=900)
     max_result_rows: Optional[int] = Field(None, ge=10, le=5_000)
@@ -89,17 +100,32 @@ class AISettingsUpdate(BaseModel):
             "stepfun_plan",
             "xiaomi",
             "tencent",
+            "yhroot",
             "custom",
         }
         if provider not in supported_providers:
             raise ValueError("不支持该模型服务商")
         return provider
 
+    _validate_backup_provider = field_validator("backup_provider")(
+        validate_provider.__func__
+    )
+
 
 class AISettingsView(BaseModel):
     provider: str
     base_url: str
     model: str
+    backup_enabled: bool
+    backup_provider: str
+    backup_base_url: str
+    backup_model: str
+    backup_api_key_set: bool
+    router_enabled: bool
+    router_first_token_timeout_seconds: int
+    router_failure_threshold: int
+    router_cooldown_seconds: int
+    router: Dict[str, Any] = Field(default_factory=dict)
     max_turns: int
     request_timeout_seconds: int
     max_result_rows: int
@@ -116,6 +142,7 @@ class AIConnectionTestRequest(BaseModel):
     api_key: Optional[str] = Field(None, max_length=20_000)
     base_url: str = Field(..., min_length=1, max_length=500)
     model: str = Field(..., min_length=1, max_length=200)
+    target: str = Field("primary", pattern="^(primary|backup)$")
 
     _validate_provider = field_validator("provider")(
         AISettingsUpdate.validate_provider.__func__

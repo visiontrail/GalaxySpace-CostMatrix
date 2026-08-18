@@ -183,7 +183,11 @@ class Anomaly(Base):
 
 
 class AISettings(Base):
-    """数据库中的 Claude Agent SDK 运行时设置（单例记录）。"""
+    """数据库中的 Claude Agent SDK 运行时设置（单例记录）。
+
+    主、备端点分别保存自己的服务商、地址、模型和加密密钥。路由策略与
+    端点配置放在同一行，保证管理员一次保存即可原子地启用故障接管。
+    """
 
     __tablename__ = "ai_settings"
 
@@ -192,6 +196,15 @@ class AISettings(Base):
     encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=True)
     base_url: Mapped[str] = mapped_column(String(500), nullable=True)
     model: Mapped[str] = mapped_column(String(200), nullable=True)
+    backup_enabled: Mapped[bool] = mapped_column(Boolean, nullable=True)
+    backup_provider: Mapped[str] = mapped_column(String(20), nullable=True)
+    encrypted_backup_api_key: Mapped[str] = mapped_column(Text, nullable=True)
+    backup_base_url: Mapped[str] = mapped_column(String(500), nullable=True)
+    backup_model: Mapped[str] = mapped_column(String(200), nullable=True)
+    router_enabled: Mapped[bool] = mapped_column(Boolean, nullable=True)
+    router_first_token_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=True)
+    router_failure_threshold: Mapped[int] = mapped_column(Integer, nullable=True)
+    router_cooldown_seconds: Mapped[int] = mapped_column(Integer, nullable=True)
     max_turns: Mapped[int] = mapped_column(Integer, nullable=True)
     request_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=True)
     max_result_rows: Mapped[int] = mapped_column(Integer, nullable=True)
@@ -245,6 +258,8 @@ class AIMessage(Base):
     tool_trace_json: Mapped[str] = mapped_column(Text, nullable=True)
     # 回答产出信息：所用模型与本轮工作时长，供历史消息回显「模型 / 耗时」。
     model: Mapped[str] = mapped_column(String(200), nullable=True)
+    provider: Mapped[str] = mapped_column(String(50), nullable=True)
+    route_slot: Mapped[str] = mapped_column(String(20), nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
